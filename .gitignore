@@ -1,0 +1,26 @@
+# node
+node_modules/
+dist/
+.next/
+out/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# mac
+.DS_Store
+
+# arduino build junk
+*.ino.bin
+*.elf
+*.map
+
+# misc
+coverage/
