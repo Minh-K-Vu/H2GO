@@ -26,6 +26,7 @@ export default function Home() {
   const [today, setToday] = useState<TodayTotal | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   async function fetchDashboardData() {
     try {
@@ -49,6 +50,7 @@ export default function Home() {
 
       setLatest(latestData);
       setToday(todayData);
+      setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
       setError("Could not load dashboard data");
@@ -59,13 +61,29 @@ export default function Home() {
 
   useEffect(() => {
     fetchDashboardData();
+
+    const intervalId = setInterval(() => {
+      fetchDashboardData();
+    }, 5000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-100">
         <div className="mx-auto max-w-6xl p-6">
-          <p className="text-sm text-zinc-600">Loading dashboard...</p>
+          <div className="animate-pulse space-y-4">
+            <div className="h-8 w-64 rounded bg-zinc-200" />
+            <div className="h-12 rounded bg-zinc-200" />
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="h-32 rounded-xl bg-zinc-200" />
+              <div className="h-32 rounded-xl bg-zinc-200" />
+              <div className="h-32 rounded-xl bg-zinc-200" />
+              <div className="h-32 rounded-xl bg-zinc-200" />
+            </div>
+            <div className="h-40 rounded-xl bg-zinc-200" />
+          </div>
         </div>
       </div>
     );
@@ -77,6 +95,8 @@ export default function Home() {
         <DashboardHeader
           title="Water Guard Dashboard"
           description="Monitor flow, detect leaks, and control the valve remotely."
+          lastUpdated={lastUpdated}
+          onRefresh={fetchDashboardData}
         />
 
         <SafetyBanner
