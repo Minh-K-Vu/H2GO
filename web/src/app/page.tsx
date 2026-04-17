@@ -21,9 +21,15 @@ type TodayTotal = {
   litresToday: number;
 };
 
+type DeviceState = {
+  id: string;
+  is_on: boolean;
+};
+
 export default function Home() {
   const [latest, setLatest] = useState<LatestReading | null>(null);
   const [today, setToday] = useState<TodayTotal | null>(null);
+  const [deviceState, setDeviceState] = useState<DeviceState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -32,9 +38,10 @@ export default function Home() {
     try {
       setError(null);
 
-      const [latestRes, todayRes] = await Promise.all([
+      const [latestRes, todayRes, deviceRes] = await Promise.all([
         fetch(`${API_BASE}/devices/${DEVICE_ID}/latest`),
         fetch(`${API_BASE}/devices/${DEVICE_ID}/today-total`),
+        fetch(`${API_BASE}/devices/${DEVICE_ID}`),
       ]);
 
       if (!latestRes.ok) {
@@ -45,17 +52,50 @@ export default function Home() {
         throw new Error("Failed to load today's total");
       }
 
+      if (!deviceRes.ok) {
+        throw new Error("Failed to load device state");
+      }
+
       const latestData: LatestReading = await latestRes.json();
       const todayData: TodayTotal = await todayRes.json();
+      const deviceData: DeviceState = await deviceRes.json();
 
       setLatest(latestData);
       setToday(todayData);
+      setDeviceState(deviceData);
       setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
       setError("Could not load dashboard data");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleToggleValve() {
+    if (!deviceState) return;
+
+    const nextState = !deviceState.is_on;
+
+    try {
+      const res = await fetch(`${API_BASE}/devices/${DEVICE_ID}/power`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          isOn: nextState,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to update valve state");
+      }
+
+      await fetchDashboardData();
+    } catch (err) {
+      console.error(err);
+      setError("Could not update valve state");
     }
   }
 
@@ -88,6 +128,8 @@ export default function Home() {
       </div>
     );
   }
+
+  const isOpen = deviceState?.is_on ?? false;
 
   return (
     <div className="min-h-screen bg-zinc-100">
@@ -128,7 +170,11 @@ export default function Home() {
             value={error ? "Unknown" : "Normal"}
           />
 
-          <ValveControlCard state="Open" buttonLabel="Turn Off Valve" />
+          <ValveControlCard
+            state={isOpen ? "Open" : "Closed"}
+            buttonLabel={isOpen ? "Turn Off Valve" : "Turn On Valve"}
+            onToggle={handleToggleValve}
+          />
         </section>
 
         <AlertsPanel

@@ -1,11 +1,13 @@
 type ValveControlCardProps = {
   state: "Open" | "Closed";
   buttonLabel: string;
+  onToggle: () => void;
 };
 
 export default function ValveControlCard({
   state,
   buttonLabel,
+  onToggle,
 }: ValveControlCardProps) {
   const isOpen = state === "Open";
 
@@ -14,6 +16,7 @@ export default function ValveControlCard({
       <p className="text-sm font-medium text-zinc-600">Valve Control</p>
       <p className="mt-2 text-lg font-semibold text-zinc-900">{state}</p>
       <button
+        onClick={onToggle}
         className={`mt-4 w-full rounded-lg px-4 py-3 text-sm font-medium text-white ${
           isOpen
             ? "bg-red-600 hover:bg-red-500"
