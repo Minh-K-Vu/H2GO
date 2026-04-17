@@ -148,4 +148,35 @@ devicesRouter.get("/devices/:id/today-total", async (req, res) => {
   }
 });
 
+devicesRouter.get("/devices/:id/alerts", async (req, res) => {
+  const deviceId = req.params.id;
+
+  try {
+    const result = await pool.query(
+      `SELECT id, device_id, type, message, ts
+       FROM alerts
+       WHERE device_id = $1
+       ORDER BY ts DESC
+       LIMIT 10`,
+      [deviceId],
+    );
+
+    return res.status(200).json(
+      result.rows.map((row) => ({
+        id: row.id,
+        deviceId: row.device_id,
+        type: row.type,
+        message: row.message,
+        timestamp: row.ts,
+      })),
+    );
+  } catch (error) {
+    console.error("Failed to fetch alerts", error);
+
+    return res.status(500).json({
+      error: "Failed to fetch alerts",
+    });
+  }
+});
+
 export default devicesRouter;

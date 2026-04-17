@@ -26,6 +26,14 @@ type DeviceState = {
   is_on: boolean;
 };
 
+type Alert = {
+  id: number;
+  deviceId: string;
+  type: string;
+  message: string;
+  timestamp: string;
+};
+
 export default function Home() {
   const [latest, setLatest] = useState<LatestReading | null>(null);
   const [today, setToday] = useState<TodayTotal | null>(null);
@@ -33,15 +41,17 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
 
   async function fetchDashboardData() {
     try {
       setError(null);
 
-      const [latestRes, todayRes, deviceRes] = await Promise.all([
+      const [latestRes, todayRes, deviceRes, alertsRes] = await Promise.all([
         fetch(`${API_BASE}/devices/${DEVICE_ID}/latest`),
         fetch(`${API_BASE}/devices/${DEVICE_ID}/today-total`),
         fetch(`${API_BASE}/devices/${DEVICE_ID}`),
+        fetch(`${API_BASE}/devices/${DEVICE_ID}/alerts`),
       ]);
 
       if (!latestRes.ok) {
@@ -56,13 +66,19 @@ export default function Home() {
         throw new Error("Failed to load device state");
       }
 
+      if (!alertsRes.ok) {
+        throw new Error("Failed to load alerts");
+      }
+
       const latestData: LatestReading = await latestRes.json();
       const todayData: TodayTotal = await todayRes.json();
       const deviceData: DeviceState = await deviceRes.json();
+      const alertsData: Alert[] = await alertsRes.json();
 
       setLatest(latestData);
       setToday(todayData);
       setDeviceState(deviceData);
+      setAlerts(alertsData);
       setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
@@ -177,10 +193,7 @@ export default function Home() {
           />
         </section>
 
-        <AlertsPanel
-          total={0}
-          message={error ? "Unable to load alerts yet." : "No alerts yet."}
-        />
+        <AlertsPanel alerts={alerts} />
       </div>
     </div>
   );
