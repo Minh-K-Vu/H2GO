@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: h2go-api
+    runtime: node
+    rootDir: api
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: h2go-db
+          property: connectionString
+      - key: WEB_ORIGIN
+        fromService:
+          name: h2go-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: AUTH_SESSION_TTL_HOURS
+        value: "168"
+
+  - type: web
+    name: h2go-web
+    runtime: node
+    rootDir: web
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    autoDeployTrigger: commit
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE_URL
+        fromService:
+          name: h2go-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+
+databases:
+  - name: h2go-db
+    plan: free
+    databaseName: h2go
+    user: h2go
