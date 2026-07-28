@@ -55,6 +55,15 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="login"
+        options={{
+          title: "Login",
+          tabBarIcon: ({ color, size }) => (
+            <Settings color={color} size={size} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

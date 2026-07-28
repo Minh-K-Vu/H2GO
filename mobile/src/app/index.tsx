@@ -61,6 +61,7 @@ export default function HomeScreen() {
   const [holidayMode, setHolidayMode] = useState(false);
   const [selectedTab, setSelectedTab] = useState<UsageTab>("Daily");
   const [apiStatus, setApiStatus] = useState("Checking API...");
+  const [dashboardStats, setDashboardStats] = useState(stats);
   useEffect(() => {
     async function checkApi() {
       try {
@@ -73,6 +74,7 @@ export default function HomeScreen() {
 
     checkApi();
   }, []);
+  
   return (
     <View style={styles.screen}>
       <Text style={styles.apiStatus}>{apiStatus}</Text>
@@ -137,7 +139,7 @@ export default function HomeScreen() {
         />
       </View>
       <View style={styles.statsGrid}>
-        {stats.map((stat) => (
+        {dashboardStats.map((stat) => (
           <View key={stat.label} style={styles.statCard}>
             <Text style={styles.statLabel}>{stat.label}</Text>
             <Text style={styles.statValue}>{stat.value}</Text>
