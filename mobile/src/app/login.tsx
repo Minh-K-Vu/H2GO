@@ -1,13 +1,31 @@
 import { useState } from "react";
 import { StyleSheet, Pressable, Text, TextInput, View } from "react-native";
+import { apiRequest } from "@/api/client";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleLogin() {
-    console.log("Email:", email);
-    console.log("Password:", password);
+  async function handleLogin() {
+    setError("");
+    setLoading(true);
+
+    try {
+      const data = await apiRequest("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
+      console.log("Logged in:", data);
+    } catch (error) {
+      setError("Could not sign in. Check your email and password.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -32,8 +50,12 @@ export default function LoginScreen() {
         secureTextEntry
       />
 
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
       <Pressable style={styles.button} onPress={handleLogin}>
-        <Text style={styles.buttonText}>Sign In</Text>
+        <Text style={styles.buttonText}>
+          {loading ? "Signing In..." : "Sign In"}
+        </Text>
       </Pressable>
     </View>
   );
@@ -73,5 +95,10 @@ const styles = StyleSheet.create({
     color: "#070d18",
     fontSize: 16,
     fontWeight: "800",
+  },
+  errorText: {
+    color: "#f87171",
+    fontSize: 14,
+    marginBottom: 12,
   },
 });
