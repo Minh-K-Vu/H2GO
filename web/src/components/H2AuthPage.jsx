@@ -41,10 +41,11 @@ export default function H2AuthPage({ initialMode = "login" }) {
         return;
       }
 
-      setError(
-        state.authError?.message ??
-          "Your account needs administrator approval before the dashboard unlocks.",
-      );
+      const fallbackMessage =
+        "Your account needs administrator approval before the dashboard unlocks.";
+      const registerMessage = !isLogin ? state.message : null;
+
+      setError(registerMessage || state.authError?.message || fallbackMessage);
     } catch (submitError) {
       if (submitError instanceof ApiError) {
         setError(submitError.message);
