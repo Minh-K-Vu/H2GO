@@ -18,6 +18,8 @@ services:
           name: h2go-web
           type: web
           envVarKey: RENDER_EXTERNAL_URL
+      - key: WEB_ORIGINS
+        value: https://h2go-web.onrender.com
       - key: AUTH_SESSION_TTL_HOURS
         value: "168"
 
