@@ -1,7 +1,31 @@
 import { Tabs } from "expo-router";
+import { ActivityIndicator, View } from "react-native";
 import { Bell, Cpu, Gauge, Settings } from "lucide-react-native";
+import { AuthProvider, useAuth } from "../auth/AuthContext";
 
-export default function TabsLayout() {
+function AppTabs() {
+  // Read the shared authentication state.
+  const { sessionToken, isLoading } = useAuth();
+
+  // Convert the token into a simple true or false value.
+  const isSignedIn = Boolean(sessionToken);
+
+  // Avoid showing Dashboard briefly while checking the saved session.
+  if (isLoading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#070d18",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <ActivityIndicator color="#22d3ee" size="large" />
+      </View>
+    );
+  }
+
   return (
     <Tabs
       screenOptions={{
@@ -11,59 +35,69 @@ export default function TabsLayout() {
           borderTopColor: "rgba(255, 255, 255, 0.1)",
           height: 84,
           paddingTop: 10,
+          display: isSignedIn ? "flex" : "none",
         },
         tabBarActiveTintColor: "#22d3ee",
         tabBarInactiveTintColor: "rgba(255, 255, 255, 0.45)",
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
-            <Gauge color={color} size={size} />
-          ),
-        }}
-      />
+      <Tabs.Protected guard={isSignedIn}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: "Dashboard",
+            tabBarIcon: ({ color, size }) => (
+              <Gauge color={color} size={size} />
+            ),
+          }}
+        />
 
-      <Tabs.Screen
-        name="alerts"
-        options={{
-          title: "Alerts",
-          tabBarIcon: ({ color, size }) => (
-            <Bell color={color} size={size} />
-          ),
-        }}
-      />
+        <Tabs.Screen
+          name="alerts"
+          options={{
+            title: "Alerts",
+            tabBarIcon: ({ color, size }) => <Bell color={color} size={size} />,
+          }}
+        />
 
-      <Tabs.Screen
-        name="devices"
-        options={{
-          title: "Devices",
-          tabBarIcon: ({ color, size }) => (
-            <Cpu color={color} size={size} />
-          ),
-        }}
-      />
+        <Tabs.Screen
+          name="devices"
+          options={{
+            title: "Devices",
+            tabBarIcon: ({ color, size }) => <Cpu color={color} size={size} />,
+          }}
+        />
 
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: "Settings",
-          tabBarIcon: ({ color, size }) => (
-            <Settings color={color} size={size} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="login"
-        options={{
-          title: "Login",
-          tabBarIcon: ({ color, size }) => (
-            <Settings color={color} size={size} />
-          ),
-        }}
-      />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: "Settings",
+            tabBarIcon: ({ color, size }) => (
+              <Settings color={color} size={size} />
+            ),
+          }}
+        />
+
+        <Tabs.Screen name="explore" options={{ href: null }} />
+      </Tabs.Protected>
+
+      <Tabs.Protected guard={!isSignedIn}>
+        <Tabs.Screen
+          name="login"
+          options={{
+            title: "Login",
+          }}
+        />
+      </Tabs.Protected>
     </Tabs>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    // Every component inside AuthProvider can now call useAuth().
+    <AuthProvider>
+      <AppTabs />
+    </AuthProvider>
   );
 }

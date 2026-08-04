@@ -1,14 +1,15 @@
 import {
   Pressable,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
   View,
   Dimensions,
 } from "react-native";
-import { useEffect, useState } from "react";
-import { apiRequest } from "../api/client";
+import { useState } from "react";
 import { BarChart } from "react-native-chart-kit";
+import { useAuth } from "@/auth/AuthContext";
 
 const stats = [
   {
@@ -60,24 +61,20 @@ export default function HomeScreen() {
   const screenWidth = Dimensions.get("window").width;
   const [holidayMode, setHolidayMode] = useState(false);
   const [selectedTab, setSelectedTab] = useState<UsageTab>("Daily");
-  const [apiStatus, setApiStatus] = useState("Checking API...");
-  const [dashboardStats, setDashboardStats] = useState(stats);
-  useEffect(() => {
-    async function checkApi() {
-      try {
-        const data = await apiRequest("/health");
-        setApiStatus(data.ok ? "API connected" : "API responded");
-      } catch (error) {
-        setApiStatus("API offline");
-      }
-    }
+  const [dashboardStats] = useState(stats);
+  const { signOut } = useAuth();
 
-    checkApi();
-  }, []);
-  
+  async function handleLogout() {
+    await signOut();
+  }
+
   return (
-    <View style={styles.screen}>
-      <Text style={styles.apiStatus}>{apiStatus}</Text>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.screenContent}
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.apiStatus}>Signed in</Text>
       <View style={styles.header}>
         <View style={styles.logoCircle}>
           <Text style={styles.logoText}>H2</Text>
@@ -167,7 +164,10 @@ export default function HomeScreen() {
       <Pressable style={styles.emergencyButton}>
         <Text style={styles.emergencyText}>Emergency Shut-Off</Text>
       </Pressable>
-    </View>
+      <Pressable style={styles.logoutButton} onPress={handleLogout}>
+        <Text style={styles.logoutText}>Log Out</Text>
+      </Pressable>
+    </ScrollView>
   );
 }
 
@@ -247,8 +247,12 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#070d18",
+  },
+
+  screenContent: {
     paddingHorizontal: 24,
     paddingTop: 72,
+    paddingBottom: 40,
   },
 
   header: {
@@ -333,6 +337,21 @@ const styles = StyleSheet.create({
 
   emergencyText: {
     color: "#fcd34d",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  logoutButton: {
+    borderColor: "rgba(255, 255, 255, 0.16)",
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingVertical: 16,
+    alignItems: "center",
+    marginTop: 12,
+  },
+
+  logoutText: {
+    color: "rgba(255, 255, 255, 0.72)",
     fontSize: 16,
     fontWeight: "700",
   },

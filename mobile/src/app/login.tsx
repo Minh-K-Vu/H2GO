@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { StyleSheet, Pressable, Text, TextInput, View } from "react-native";
 import { apiRequest } from "@/api/client";
+import { useAuth } from "@/auth/AuthContext";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { signIn } = useAuth();
 
   async function handleLogin() {
     setError("");
@@ -20,7 +22,12 @@ export default function LoginScreen() {
           password,
         }),
       });
-      console.log("Logged in:", data);
+      if (data.sessionToken) {
+        // Save the token and update the authentication state for the whole app.
+        await signIn(data.sessionToken);
+      } else {
+        setError("Login worked, but no session was returned.");
+      }
     } catch (error) {
       setError("Could not sign in. Check your email and password.");
     } finally {
