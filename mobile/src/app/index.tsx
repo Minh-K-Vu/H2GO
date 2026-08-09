@@ -74,7 +74,6 @@ export default function HomeScreen() {
       contentContainerStyle={styles.screenContent}
       showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.apiStatus}>Signed in</Text>
       <View style={styles.header}>
         <View style={styles.logoCircle}>
           <Text style={styles.logoText}>H2</Text>

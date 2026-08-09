@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -92,6 +92,34 @@ body {
 
 html {
   scroll-behavior: smooth;
+}
+
+.h2-marketing {
+  font-family: "Inter", sans-serif;
+}
+
+.h2-marketing *,
+.h2-marketing *::before,
+.h2-marketing *::after {
+  letter-spacing: 0;
+}
+
+.h2-data {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.h2-product-hero canvas {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .h2-marketing *,
+  .h2-marketing *::before,
+  .h2-marketing *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 @keyframes landing-fade-up {
