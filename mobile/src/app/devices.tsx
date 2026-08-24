@@ -23,7 +23,6 @@ import {
   Link,
   MapPin,
   Pencil,
-  Plus,
   Power,
   RadioTower,
   Thermometer,
@@ -35,14 +34,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   connectSimulator,
-  createSimulator,
   deleteDevice,
   type Device,
   type DeviceReading,
   fetchAvailableSimulators,
   fetchDevices,
   fetchDeviceTelemetry,
-  removeSimulator,
   setDeviceValve,
   type Simulator,
   updateDevice,
@@ -156,20 +153,6 @@ export default function DevicesScreen() {
     };
   }, [telemetryDeviceId]);
 
-  async function handleCreateSimulator() {
-    setBusyId("new-simulator");
-
-    try {
-      const simulator = await createSimulator();
-      setSimulators((current) => [simulator, ...current]);
-      setError(null);
-    } catch (requestError) {
-      setError(errorMessage(requestError, "Could not create simulator."));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   function openConnectForm(simulator: Simulator) {
     setFormMode("connect");
     setFormSimulator(simulator);
@@ -250,37 +233,6 @@ export default function DevicesScreen() {
     }
   }
 
-  function confirmRemoveSimulator(simulator: Simulator) {
-    Alert.alert(
-      "Remove simulator?",
-      `${simulator.serialNumber} will no longer appear as an available device.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => void handleRemoveSimulator(simulator),
-        },
-      ],
-    );
-  }
-
-  async function handleRemoveSimulator(simulator: Simulator) {
-    setBusyId(simulator.id);
-
-    try {
-      await removeSimulator(simulator.id);
-      setSimulators((current) =>
-        current.filter((item) => item.id !== simulator.id),
-      );
-      setError(null);
-    } catch (requestError) {
-      setError(errorMessage(requestError, "Could not remove simulator."));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function handleValveToggle() {
     if (!selectedDevice) {
       return;
@@ -350,22 +302,6 @@ export default function DevicesScreen() {
       >
         <View style={styles.brandRow}>
           <H2Brand />
-          <Pressable
-            accessibilityLabel="Create simulated device"
-            disabled={busyId !== null}
-            onPress={() => void handleCreateSimulator()}
-            style={({ pressed }) => [
-              styles.addButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            {busyId === "new-simulator" ? (
-              <ActivityIndicator color={H2Colors.background} size="small" />
-            ) : (
-              <Plus color={H2Colors.background} size={19} strokeWidth={2.5} />
-            )}
-            <Text style={styles.addButtonText}>Simulator</Text>
-          </Pressable>
         </View>
 
         <View style={styles.heading}>
@@ -415,14 +351,6 @@ export default function DevicesScreen() {
                     <Text style={styles.signalText}>{simulator.signalStrength}% signal</Text>
                   </View>
                 </View>
-                <Pressable
-                  accessibilityLabel={`Remove ${simulator.serialNumber}`}
-                  disabled={busyId !== null}
-                  onPress={() => confirmRemoveSimulator(simulator)}
-                  style={styles.iconButton}
-                >
-                  <Trash2 color={H2Colors.textMuted} size={17} />
-                </Pressable>
                 <Pressable
                   disabled={busyId !== null}
                   onPress={() => openConnectForm(simulator)}
@@ -671,20 +599,6 @@ export default function DevicesScreen() {
 }
 
 const styles = StyleSheet.create({
-  addButton: {
-    alignItems: "center",
-    backgroundColor: H2Colors.primary,
-    borderRadius: H2Radius.large,
-    flexDirection: "row",
-    gap: 7,
-    height: 40,
-    paddingHorizontal: 13,
-  },
-  addButtonText: {
-    color: H2Colors.background,
-    fontFamily: H2Fonts.semibold,
-    fontSize: 13,
-  },
   availableCopy: { flex: 1 },
   availableList: { gap: 10 },
   availableModel: {

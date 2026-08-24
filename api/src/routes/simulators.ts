@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { PoolClient } from "pg";
 import { z } from "zod";
 import { pool } from "../db/pool";
 import { requireRegisteredUser, requireRole } from "../middleware/auth";
@@ -66,6 +67,29 @@ function mapConnectedDevice(row: ConnectedDeviceRow, serialNumber: string) {
   };
 }
 
+async function insertSimulator(client: PoolClient) {
+  const sequenceResult = await client.query<{ value: string }>(
+    "SELECT nextval('simulated_device_sequence')::text AS value",
+  );
+  const sequence = Number(sequenceResult.rows[0].value);
+  const serialNumber = `H2-SIM-${String(sequence).padStart(4, "0")}`;
+  const simulationSeed = sequence * 7919;
+  const result = await client.query<SimulatorRow>(
+    `INSERT INTO simulated_devices (serial_number, simulation_seed)
+     VALUES ($1, $2)
+     RETURNING
+       id,
+       serial_number,
+       model,
+       simulation_seed,
+       NULL::text AS connected_device_id,
+       created_at`,
+    [serialNumber, simulationSeed],
+  );
+
+  return result.rows[0];
+}
+
 simulatorsRouter.use(requireRegisteredUser);
 
 simulatorsRouter.get("/simulators", async (req, res) => {
@@ -85,6 +109,41 @@ simulatorsRouter.get("/simulators", async (req, res) => {
       : status === "connected"
         ? "WHERE d.id IS NOT NULL"
         : "";
+
+  if (status === "available") {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock($1)", [8242026]);
+      const result = await client.query<SimulatorRow>(
+        `SELECT
+           s.id,
+           s.serial_number,
+           s.model,
+           s.simulation_seed,
+           d.id AS connected_device_id,
+           s.created_at
+         FROM simulated_devices s
+         LEFT JOIN devices d ON d.simulator_id = s.id
+         WHERE d.id IS NULL
+         ORDER BY s.created_at DESC`,
+      );
+
+      if (result.rows.length === 0) {
+        result.rows.push(await insertSimulator(client));
+      }
+
+      await client.query("COMMIT");
+      return res.status(200).json(result.rows.map(mapSimulator));
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("Failed to fetch available simulators", error);
+      return res.status(500).json({ error: "Failed to fetch simulators." });
+    } finally {
+      client.release();
+    }
+  }
 
   try {
     const result = await pool.query<SimulatorRow>(
@@ -116,27 +175,10 @@ simulatorsRouter.post(
 
     try {
       await client.query("BEGIN");
-      const sequenceResult = await client.query<{ value: string }>(
-        "SELECT nextval('simulated_device_sequence')::text AS value",
-      );
-      const sequence = Number(sequenceResult.rows[0].value);
-      const serialNumber = `H2-SIM-${String(sequence).padStart(4, "0")}`;
-      const simulationSeed = sequence * 7919;
-      const result = await client.query<SimulatorRow>(
-        `INSERT INTO simulated_devices (serial_number, simulation_seed)
-         VALUES ($1, $2)
-         RETURNING
-           id,
-           serial_number,
-           model,
-           simulation_seed,
-           NULL::text AS connected_device_id,
-           created_at`,
-        [serialNumber, simulationSeed],
-      );
+      const simulator = await insertSimulator(client);
       await client.query("COMMIT");
 
-      return res.status(201).json(mapSimulator(result.rows[0]));
+      return res.status(201).json(mapSimulator(simulator));
     } catch (error) {
       await client.query("ROLLBACK");
       console.error("Failed to create simulator", error);
