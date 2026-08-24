@@ -28,7 +28,7 @@ export default function LoginScreen() {
       } else {
         setError("Login worked, but no session was returned.");
       }
-    } catch (error) {
+    } catch {
       setError("Could not sign in. Check your email and password.");
     } finally {
       setLoading(false);

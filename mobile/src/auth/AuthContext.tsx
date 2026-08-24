@@ -51,7 +51,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           await clearSessionToken();
           setSessionToken(null);
         }
-      } catch (error) {
+      } catch {
         // An invalid or unusable session should not unlock the app.
         await clearSessionToken();
         setSessionToken(null);

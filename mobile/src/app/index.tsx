@@ -80,7 +80,7 @@ export default function HomeScreen() {
         </View>
 
         <View>
-          <Text style={styles.homeName}>Cameron's Home</Text>
+          <Text style={styles.homeName}>{"Cameron's Home"}</Text>
           <Text style={styles.status}>All systems secure</Text>
         </View>
       </View>
