@@ -105,6 +105,27 @@ const databaseSchemaSql = `
     ALTER COLUMN created_at SET DEFAULT now(),
     ALTER COLUMN updated_at SET DEFAULT now();
 
+  CREATE SEQUENCE IF NOT EXISTS simulated_device_sequence START WITH 1001;
+
+  CREATE TABLE IF NOT EXISTS simulated_devices (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    serial_number TEXT NOT NULL UNIQUE,
+    model TEXT NOT NULL DEFAULT 'H2 One',
+    simulation_seed INTEGER NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  ALTER TABLE simulated_devices
+    ADD COLUMN IF NOT EXISTS serial_number TEXT,
+    ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT 'H2 One',
+    ADD COLUMN IF NOT EXISTS simulation_seed INTEGER,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+  ALTER TABLE devices
+    ADD COLUMN IF NOT EXISTS simulator_id TEXT REFERENCES simulated_devices(id) ON DELETE SET NULL;
+
   DO $$
   BEGIN
     IF NOT EXISTS (
@@ -232,6 +253,16 @@ const databaseSchemaSql = `
   CREATE INDEX IF NOT EXISTS devices_status_idx
     ON devices (status);
 
+  CREATE UNIQUE INDEX IF NOT EXISTS devices_simulator_id_key
+    ON devices (simulator_id)
+    WHERE simulator_id IS NOT NULL;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS simulated_devices_serial_number_key
+    ON simulated_devices (serial_number);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS simulated_devices_seed_key
+    ON simulated_devices (simulation_seed);
+
   CREATE INDEX IF NOT EXISTS readings_device_ts_idx
     ON readings (device_id, ts DESC);
 
@@ -283,12 +314,36 @@ const databaseSchemaSql = `
   END;
   $$;
 
-  INSERT INTO devices (id, name, location, status, is_on, last_seen)
-  VALUES ('dev-1', 'H2GO Sensor', 'Main Line', 'online', true, now())
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger WHERE tgname = 'set_simulated_devices_updated_at'
+    ) THEN
+      CREATE TRIGGER set_simulated_devices_updated_at
+      BEFORE UPDATE ON simulated_devices
+      FOR EACH ROW
+      EXECUTE FUNCTION public.set_row_updated_at();
+    END IF;
+  END;
+  $$;
+
+  INSERT INTO simulated_devices (id, serial_number, model, simulation_seed)
+  VALUES ('sim-demo-1', 'H2-SIM-1000', 'H2 One', 104729)
   ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO devices (id, name, location, status, is_on, last_seen, simulator_id)
+  VALUES ('dev-1', 'H2 Monitor', 'Main Line', 'online', true, now(), 'sim-demo-1')
+  ON CONFLICT (id) DO NOTHING;
+
+  UPDATE devices
+  SET simulator_id = 'sim-demo-1'
+  WHERE id = 'dev-1'
+    AND simulator_id IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM devices WHERE simulator_id = 'sim-demo-1'
+    );
 `;
 
 export async function ensureDatabaseSchema() {
   await pool.query(databaseSchemaSql);
 }
-
