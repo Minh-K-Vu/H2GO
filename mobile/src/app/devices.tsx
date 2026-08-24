@@ -233,26 +233,24 @@ export default function DevicesScreen() {
     }
   }
 
-  async function handleValveToggle() {
-    if (!selectedDevice) {
-      return;
-    }
-
-    setBusyId(selectedDevice.id);
+  async function handleValveToggle(device: Device) {
+    setBusyId(device.id);
 
     try {
       const response = await setDeviceValve(
-        selectedDevice.id,
-        !selectedDevice.is_on,
+        device.id,
+        !device.is_on,
       );
       setDevices((current) =>
         current.map((device) =>
           device.id === response.data.id ? response.data : device,
         ),
       );
-      const telemetry = await fetchDeviceTelemetry(selectedDevice.id);
-      setReading(telemetry.latest);
-      setLitresToday(telemetry.today.litresToday);
+      if (device.id === selectedDevice?.id) {
+        const telemetry = await fetchDeviceTelemetry(device.id);
+        setReading(telemetry.latest);
+        setLitresToday(telemetry.today.litresToday);
+      }
       setError(null);
     } catch (requestError) {
       setError(errorMessage(requestError, "Could not change valve state."));
@@ -418,30 +416,52 @@ export default function DevicesScreen() {
               const selected = device.id === selectedDevice?.id;
 
               return (
-                <Pressable
+                <View
                   key={device.id}
-                  onPress={() => setSelectedDeviceId(device.id)}
                   style={[
-                    styles.deviceChip,
-                    selected && styles.deviceChipSelected,
+                    styles.deviceControl,
+                    selected && styles.deviceControlSelected,
                   ]}
                 >
-                  <View
+                  <Pressable
+                    accessibilityLabel={`Show ${device.name}`}
+                    onPress={() => setSelectedDeviceId(device.id)}
+                    style={styles.deviceControlSelect}
+                  >
+                    <View
+                      style={[
+                        styles.deviceStatusDot,
+                        device.status !== "online" && styles.warningDot,
+                      ]}
+                    />
+                    <View style={styles.deviceControlCopy}>
+                      <Text numberOfLines={1} style={styles.deviceControlName}>
+                        {device.name}
+                      </Text>
+                      <Text style={styles.deviceControlStatus}>
+                        Valve {device.is_on ? "open" : "closed"}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel={`${device.is_on ? "Close" : "Open"} ${device.name} valve`}
+                    disabled={busyId !== null}
+                    onPress={() => void handleValveToggle(device)}
                     style={[
-                      styles.deviceStatusDot,
-                      device.status !== "online" && styles.warningDot,
-                    ]}
-                  />
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.deviceChipText,
-                      selected && styles.deviceChipTextSelected,
+                      styles.deviceControlButton,
+                      !device.is_on && styles.deviceControlButtonOpen,
                     ]}
                   >
-                    {device.name}
-                  </Text>
-                </Pressable>
+                    {busyId === device.id ? (
+                      <ActivityIndicator color={H2Colors.white} size="small" />
+                    ) : (
+                      <Power color={H2Colors.white} size={15} />
+                    )}
+                    <Text style={styles.deviceControlButtonText}>
+                      {device.is_on ? "Close" : "Open"}
+                    </Text>
+                  </Pressable>
+                </View>
               );
             })}
           </ScrollView>
@@ -490,7 +510,7 @@ export default function DevicesScreen() {
 
             <Pressable
               disabled={busyId !== null}
-              onPress={() => void handleValveToggle()}
+              onPress={() => void handleValveToggle(selectedDevice)}
               style={[
                 styles.valveButton,
                 !selectedDevice.is_on && styles.valveButtonClosed,
@@ -657,29 +677,57 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
   detailSection: { marginTop: 6 },
-  deviceChip: {
+  deviceControl: {
     alignItems: "center",
     backgroundColor: H2Colors.surface,
-    borderColor: H2Colors.borderSoft,
+    borderColor: H2Colors.border,
     borderRadius: H2Radius.large,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 7,
-    height: 40,
-    maxWidth: 190,
-    paddingHorizontal: 12,
+    height: 62,
+    padding: 6,
+    width: 270,
   },
-  deviceChipSelected: {
-    backgroundColor: H2Colors.primary,
+  deviceControlButton: {
+    alignItems: "center",
+    backgroundColor: H2Colors.text,
+    borderRadius: H2Radius.medium,
+    flexDirection: "row",
+    gap: 5,
+    height: 42,
+    justifyContent: "center",
+    width: 76,
+  },
+  deviceControlButtonOpen: { backgroundColor: H2Colors.success },
+  deviceControlButtonText: {
+    color: H2Colors.white,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 11,
+  },
+  deviceControlCopy: { flex: 1, marginLeft: 8 },
+  deviceControlName: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 13,
+  },
+  deviceControlSelect: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    height: "100%",
+    minWidth: 0,
+    paddingHorizontal: 6,
+  },
+  deviceControlSelected: {
     borderColor: H2Colors.primary,
   },
-  deviceChipText: {
-    color: H2Colors.textSecondary,
-    fontFamily: H2Fonts.medium,
-    fontSize: 13,
-    maxWidth: 145,
+  deviceControlStatus: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.data,
+    fontSize: 8,
+    marginTop: 4,
+    textTransform: "uppercase",
   },
-  deviceChipTextSelected: { color: H2Colors.background },
   deviceHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -699,7 +747,7 @@ const styles = StyleSheet.create({
     fontFamily: H2Fonts.bold,
     fontSize: 23,
   },
-  deviceSelector: { gap: 9, paddingVertical: 18 },
+  deviceSelector: { gap: 10, paddingVertical: 18 },
   deviceSerial: {
     color: H2Colors.textMuted,
     fontFamily: H2Fonts.data,
