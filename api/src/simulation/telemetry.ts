@@ -9,6 +9,13 @@ export function getSimulationBucket(timestamp: Date) {
   return Math.floor(timestamp.getTime() / 15_000);
 }
 
+export function simulatedReadingMatchesValveState(
+  flowLpm: number,
+  valveOpen: boolean,
+) {
+  return valveOpen ? flowLpm > 0 : flowLpm === 0;
+}
+
 function round(value: number, decimalPlaces: number) {
   const factor = 10 ** decimalPlaces;
   return Math.round(value * factor) / factor;

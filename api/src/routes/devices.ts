@@ -5,6 +5,7 @@ import { requireRegisteredUser, requireRole } from "../middleware/auth";
 import {
   createSimulatedTelemetry,
   getSimulationBucket,
+  simulatedReadingMatchesValveState,
 } from "../simulation/telemetry";
 
 const devicesRouter = Router();
@@ -246,19 +247,24 @@ async function ensureFreshSimulatedReading(deviceId: string) {
     return;
   }
 
-  const latestResult = await pool.query<{ ts: string }>(
-    `SELECT ts
+  const latestResult = await pool.query<{ flow_lpm: string | number; ts: string }>(
+    `SELECT flow_lpm, ts
      FROM readings
      WHERE device_id = $1
      ORDER BY ts DESC
      LIMIT 1`,
     [deviceId],
   );
-  const latestTimestamp = latestResult.rows[0]?.ts;
+  const latestReading = latestResult.rows[0];
+  const latestTimestamp = latestReading?.ts;
 
   if (
     latestTimestamp &&
-    Date.now() - new Date(latestTimestamp).getTime() < 15_000
+    Date.now() - new Date(latestTimestamp).getTime() < 15_000 &&
+    simulatedReadingMatchesValveState(
+      Number(latestReading.flow_lpm),
+      device.is_on,
+    )
   ) {
     return;
   }
@@ -282,7 +288,11 @@ async function ensureFreshSimulatedReading(deviceId: string) {
      VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (device_id, simulation_bucket)
        WHERE simulation_bucket IS NOT NULL
-     DO NOTHING`,
+     DO UPDATE SET
+       flow_lpm = EXCLUDED.flow_lpm,
+       pressure_bar = EXCLUDED.pressure_bar,
+       temperature_c = EXCLUDED.temperature_c,
+       ts = EXCLUDED.ts`,
     [
       device.id,
       device.name,

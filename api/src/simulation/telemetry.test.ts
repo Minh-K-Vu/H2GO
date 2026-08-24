@@ -4,6 +4,7 @@ import {
   createSimulatedHistory,
   createSimulatedTelemetry,
   getSimulationBucket,
+  simulatedReadingMatchesValveState,
 } from "./telemetry";
 
 const timestamp = new Date("2026-08-24T10:00:00.000Z");
@@ -30,6 +31,13 @@ test("closing the valve reduces simulated flow to zero", () => {
   const reading = createSimulatedTelemetry(101, timestamp, false);
 
   assert.equal(reading.flowLpm, 0);
+});
+
+test("a reading must reflect the current simulated valve state", () => {
+  assert.equal(simulatedReadingMatchesValveState(4.2, true), true);
+  assert.equal(simulatedReadingMatchesValveState(0, true), false);
+  assert.equal(simulatedReadingMatchesValveState(0, false), true);
+  assert.equal(simulatedReadingMatchesValveState(4.2, false), false);
 });
 
 test("history is chronological and contains the requested sample count", () => {
