@@ -21,6 +21,10 @@ type AuthContextValue = {
   signOut: () => Promise<void>;
 };
 
+type AuthStateResponse = {
+  isAuthenticated: boolean;
+};
+
 // The context allows any screen to access authentication information.
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -43,7 +47,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
 
         // Ask the backend whether the saved token is still valid.
-        const authState = await apiRequest("/auth/state");
+        const authState = await apiRequest<AuthStateResponse>("/auth/state");
 
         if (authState.isAuthenticated) {
           setSessionToken(savedToken);
@@ -73,7 +77,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   async function signOut() {
     try {
       // Ask the backend to destroy its copy of the session.
-      await apiRequest("/auth/logout", {
+      await apiRequest<{ ok: boolean }>("/auth/logout", {
         method: "POST",
       });
     } finally {

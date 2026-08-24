@@ -3,6 +3,10 @@ import { StyleSheet, Pressable, Text, TextInput, View } from "react-native";
 import { apiRequest } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
 
+type LoginResponse = {
+  sessionToken?: string;
+};
+
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -15,7 +19,7 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const data = await apiRequest("/auth/login", {
+      const data = await apiRequest<LoginResponse>("/auth/login", {
         method: "POST",
         body: JSON.stringify({
           email,

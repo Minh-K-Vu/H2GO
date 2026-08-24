@@ -1,443 +1,1133 @@
+import { useFocusEffect } from "expo-router";
 import {
+  ActivityIndicator,
+  Alert,
   Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
-import { useState } from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  DollarSign,
+  Cpu,
   Droplets,
   Gauge,
-  Leaf,
-  ShieldAlert,
-  Sparkles,
+  Link,
+  MapPin,
+  Pencil,
+  Plus,
+  Power,
+  RadioTower,
   Thermometer,
-  TrendingUp,
-  Waves,
+  Trash2,
+  Wifi,
+  X,
 } from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-// These are the rooms that users can monitor.
-const rooms = [
-  { id: "kitchen", label: "Kitchen", x: "75%", y: "50%" },
-  { id: "bathroom", label: "Bathroom", x: "40%", y: "50%" },
-  { id: "laundry", label: "Laundry", x: "55%", y: "54%" },
-  { id: "garden", label: "Garden", x: "14%", y: "62%" },
-  { id: "pool", label: "Pool", x: "55%", y: "82%" },
+import {
+  connectSimulator,
+  createSimulator,
+  deleteDevice,
+  type Device,
+  type DeviceReading,
+  fetchAvailableSimulators,
+  fetchDevices,
+  fetchDeviceTelemetry,
+  removeSimulator,
+  setDeviceValve,
+  type Simulator,
+  updateDevice,
+} from "@/api/devices";
+import { H2Brand } from "@/components/h2-brand";
+import { H2Colors, H2Fonts, H2Radius } from "@/constants/theme";
+
+const markerPositions = [
+  { left: "72%", top: "52%" },
+  { left: "47%", top: "58%" },
+  { left: "27%", top: "48%" },
+  { left: "61%", top: "76%" },
+  { left: "84%", top: "67%" },
 ] as const;
 
-// This creates the type:
-// "kitchen" | "bathroom" | "laundry" | "garden" | "pool"
-type RoomId = (typeof rooms)[number]["id"];
+type DeviceFormMode = "connect" | "edit";
 
-type RoomData = {
-  currentFlow: number;
-  today: number;
-  month: number;
-  temperature: number;
-  efficiency: number;
-  cost: number;
-  predicted: number;
-  carbon: number;
-  risk: string;
-};
-
-const roomData: Record<RoomId, RoomData> = {
-  kitchen: {
-    currentFlow: 4.2,
-    today: 38,
-    month: 1.14,
-    temperature: 22,
-    efficiency: 92,
-    cost: 9.1,
-    predicted: 1.08,
-    carbon: 0.31,
-    risk: "Low",
-  },
-  bathroom: {
-    currentFlow: 7.8,
-    today: 64,
-    month: 1.92,
-    temperature: 41,
-    efficiency: 78,
-    cost: 15.3,
-    predicted: 2.05,
-    carbon: 0.52,
-    risk: "Medium",
-  },
-  laundry: {
-    currentFlow: 0,
-    today: 19,
-    month: 0.57,
-    temperature: 24,
-    efficiency: 88,
-    cost: 4.5,
-    predicted: 0.55,
-    carbon: 0.16,
-    risk: "Low",
-  },
-  garden: {
-    currentFlow: 2.1,
-    today: 28,
-    month: 0.84,
-    temperature: 19,
-    efficiency: 95,
-    cost: 6.7,
-    predicted: 0.8,
-    carbon: 0.23,
-    risk: "Low",
-  },
-  pool: {
-    currentFlow: 0.4,
-    today: 12,
-    month: 0.36,
-    temperature: 26,
-    efficiency: 90,
-    cost: 2.9,
-    predicted: 0.34,
-    carbon: 0.1,
-    risk: "Low",
-  },
-};
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
 
 export default function DevicesScreen() {
-  // The Kitchen is selected when the screen first opens.
-  const [activeRoomId, setActiveRoomId] = useState<RoomId>("kitchen");
-  // Find the complete room object matching the selected ID.
-  const activeRoom = rooms.find((room) => room.id === activeRoomId);
-  const selectedData = roomData[activeRoomId];
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [simulators, setSimulators] = useState<Simulator[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [reading, setReading] = useState<DeviceReading | null>(null);
+  const [litresToday, setLitresToday] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [formMode, setFormMode] = useState<DeviceFormMode>("connect");
+  const [formOpen, setFormOpen] = useState(false);
+  const [formName, setFormName] = useState("");
+  const [formLocation, setFormLocation] = useState("");
+  const [formSimulator, setFormSimulator] = useState<Simulator | null>(null);
+  const [formDevice, setFormDevice] = useState<Device | null>(null);
+
+  const selectedDevice = useMemo(
+    () => devices.find((device) => device.id === selectedDeviceId) ?? devices[0],
+    [devices, selectedDeviceId],
+  );
+  const telemetryDeviceId = selectedDevice?.id;
+
+  const loadInventory = useCallback(async (showSpinner = false) => {
+    if (showSpinner) {
+      setRefreshing(true);
+    }
+
+    try {
+      const [nextDevices, nextSimulators] = await Promise.all([
+        fetchDevices(),
+        fetchAvailableSimulators(),
+      ]);
+      setDevices(nextDevices);
+      setSimulators(nextSimulators);
+      if (nextDevices.length === 0) {
+        setReading(null);
+        setLitresToday(0);
+      }
+      setSelectedDeviceId((current) => {
+        if (current && nextDevices.some((device) => device.id === current)) {
+          return current;
+        }
+
+        return nextDevices[0]?.id ?? null;
+      });
+      setError(null);
+    } catch (requestError) {
+      setError(errorMessage(requestError, "Could not load devices."));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadInventory();
+    }, [loadInventory]),
+  );
+
+  useEffect(() => {
+    if (!telemetryDeviceId) {
+      return undefined;
+    }
+
+    let active = true;
+
+    async function loadTelemetry() {
+      try {
+        const telemetry = await fetchDeviceTelemetry(telemetryDeviceId);
+
+        if (active) {
+          setReading(telemetry.latest);
+          setLitresToday(telemetry.today.litresToday);
+        }
+      } catch (requestError) {
+        if (active) {
+          setError(errorMessage(requestError, "Could not load telemetry."));
+        }
+      }
+    }
+
+    void loadTelemetry();
+    const interval = setInterval(() => void loadTelemetry(), 15_000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [telemetryDeviceId]);
+
+  async function handleCreateSimulator() {
+    setBusyId("new-simulator");
+
+    try {
+      const simulator = await createSimulator();
+      setSimulators((current) => [simulator, ...current]);
+      setError(null);
+    } catch (requestError) {
+      setError(errorMessage(requestError, "Could not create simulator."));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function openConnectForm(simulator: Simulator) {
+    setFormMode("connect");
+    setFormSimulator(simulator);
+    setFormDevice(null);
+    setFormName(`H2 Monitor ${simulator.serialNumber.slice(-4)}`);
+    setFormLocation("Main water line");
+    setFormOpen(true);
+  }
+
+  function openEditForm(device: Device) {
+    setFormMode("edit");
+    setFormDevice(device);
+    setFormSimulator(null);
+    setFormName(device.name);
+    setFormLocation(device.location ?? "");
+    setFormOpen(true);
+  }
+
+  async function handleSaveForm() {
+    const name = formName.trim();
+    const location = formLocation.trim();
+
+    if (!name || !location) {
+      setError("Device name and location are required.");
+      return;
+    }
+
+    const targetId = formSimulator?.id ?? formDevice?.id;
+
+    if (!targetId) {
+      return;
+    }
+
+    setBusyId(targetId);
+
+    try {
+      const device =
+        formMode === "connect"
+          ? await connectSimulator(targetId, { name, location })
+          : await updateDevice(targetId, { name, location });
+      setFormOpen(false);
+      setSelectedDeviceId(device.id);
+      await loadInventory();
+      setError(null);
+    } catch (requestError) {
+      setError(errorMessage(requestError, "Could not save device."));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function confirmDeleteDevice(device: Device) {
+    Alert.alert(
+      "Disconnect device?",
+      `${device.name} will be removed from this home. Its simulator will become available again.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Disconnect",
+          style: "destructive",
+          onPress: () => void handleDeleteDevice(device),
+        },
+      ],
+    );
+  }
+
+  async function handleDeleteDevice(device: Device) {
+    setBusyId(device.id);
+
+    try {
+      await deleteDevice(device.id);
+      await loadInventory();
+      setError(null);
+    } catch (requestError) {
+      setError(errorMessage(requestError, "Could not disconnect device."));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function confirmRemoveSimulator(simulator: Simulator) {
+    Alert.alert(
+      "Remove simulator?",
+      `${simulator.serialNumber} will no longer appear as an available device.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => void handleRemoveSimulator(simulator),
+        },
+      ],
+    );
+  }
+
+  async function handleRemoveSimulator(simulator: Simulator) {
+    setBusyId(simulator.id);
+
+    try {
+      await removeSimulator(simulator.id);
+      setSimulators((current) =>
+        current.filter((item) => item.id !== simulator.id),
+      );
+      setError(null);
+    } catch (requestError) {
+      setError(errorMessage(requestError, "Could not remove simulator."));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleValveToggle() {
+    if (!selectedDevice) {
+      return;
+    }
+
+    setBusyId(selectedDevice.id);
+
+    try {
+      const response = await setDeviceValve(
+        selectedDevice.id,
+        !selectedDevice.is_on,
+      );
+      setDevices((current) =>
+        current.map((device) =>
+          device.id === response.data.id ? response.data : device,
+        ),
+      );
+      const telemetry = await fetchDeviceTelemetry(selectedDevice.id);
+      setReading(telemetry.latest);
+      setLitresToday(telemetry.today.litresToday);
+      setError(null);
+    } catch (requestError) {
+      setError(errorMessage(requestError, "Could not change valve state."));
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   const metrics = [
     {
-      label: "Current Flow",
-      value: `${selectedData.currentFlow} L/min`,
-      Icon: Waves,
+      icon: Droplets,
+      label: "Current flow",
+      value: reading ? `${reading.flowLpm.toFixed(2)} L/min` : "--",
     },
     {
-      label: "Today's Usage",
-      value: `${selectedData.today} L`,
-      Icon: Droplets,
+      icon: Gauge,
+      label: "Pressure",
+      value: reading?.pressureBar != null ? `${reading.pressureBar.toFixed(2)} bar` : "--",
     },
     {
-      label: "Monthly Usage",
-      value: `${selectedData.month} kL`,
-      Icon: TrendingUp,
+      icon: Thermometer,
+      label: "Water temp",
+      value:
+        reading?.temperatureC != null
+          ? `${reading.temperatureC.toFixed(1)} C`
+          : "--",
     },
     {
-      label: "Water Temp",
-      value: `${selectedData.temperature}\u00B0C`,
-      Icon: Thermometer,
-    },
-    {
-      label: "Efficiency Score",
-      value: `${selectedData.efficiency}%`,
-      Icon: Gauge,
-    },
-    {
-      label: "Cost (month)",
-      value: `$${selectedData.cost.toFixed(2)}`,
-      Icon: DollarSign,
-    },
-    {
-      label: "Predicted Usage",
-      value: `${selectedData.predicted} kL`,
-      Icon: Sparkles,
-    },
-    {
-      label: "Carbon Impact",
-      value: `${selectedData.carbon} kg CO\u2082`,
-      Icon: Leaf,
-    },
-    {
-      label: "Insurance Risk",
-      value: selectedData.risk,
-      Icon: ShieldAlert,
+      icon: RadioTower,
+      label: "Today's usage",
+      value: `${litresToday.toFixed(1)} L`,
     },
   ];
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.eyebrow}>SMART HOME</Text>
-      <Text style={styles.title}>Devices</Text>
-      <View style={styles.houseVisual}>
-        <Image
-          source={require("../../assets/images/smart-home.png")}
-          style={styles.houseImage}
-          resizeMode="cover"
-        />
-
-        {/* Slightly darken the image so the markers remain visible. */}
-        <View pointerEvents="none" style={styles.imageShade} />
-
-        {rooms.map((room) => {
-          const isSelected = room.id === activeRoomId;
-
-          return (
-            <Pressable
-              key={room.id}
-              accessibilityLabel={`Select ${room.label}`}
-              onPress={() => setActiveRoomId(room.id)}
-              style={[
-                styles.roomMarker,
-                {
-                  left: room.x,
-                  top: room.y,
-                },
-                isSelected && styles.selectedRoomMarker,
-              ]}
-            >
-              <View
-                style={[
-                  styles.markerDot,
-                  isSelected && styles.selectedMarkerDot,
-                ]}
-              />
-
-              {isSelected ? (
-                <Text style={styles.markerLabel}>{room.label}</Text>
-              ) : null}
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {/* Horizontal scrolling prevents the room buttons becoming cramped. */}
+    <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.roomSelector}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void loadInventory(true)}
+            tintColor={H2Colors.primary}
+          />
+        }
+        showsVerticalScrollIndicator={false}
       >
-        {rooms.map((room) => {
-          const isSelected = room.id === activeRoomId;
-          return (
-            <Pressable
-              key={room.id}
-              onPress={() => setActiveRoomId(room.id)}
-              style={[
-                styles.roomButton,
-                isSelected && styles.selectedRoomButton,
-              ]}
-            >
-              <Text
+        <View style={styles.brandRow}>
+          <H2Brand />
+          <Pressable
+            accessibilityLabel="Create simulated device"
+            disabled={busyId !== null}
+            onPress={() => void handleCreateSimulator()}
+            style={({ pressed }) => [
+              styles.addButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            {busyId === "new-simulator" ? (
+              <ActivityIndicator color={H2Colors.background} size="small" />
+            ) : (
+              <Plus color={H2Colors.background} size={19} strokeWidth={2.5} />
+            )}
+            <Text style={styles.addButtonText}>Simulator</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.heading}>
+          <Text style={styles.eyebrow}>Digital twins</Text>
+          <Text style={styles.title}>Devices</Text>
+          <Text style={styles.description}>
+            Connected monitors and nearby H2 hardware.
+          </Text>
+        </View>
+
+        {error ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText}>{error}</Text>
+            <Pressable accessibilityLabel="Dismiss error" onPress={() => setError(null)}>
+              <X color={H2Colors.warning} size={17} />
+            </Pressable>
+          </View>
+        ) : null}
+
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.sectionEyebrow}>Discovery</Text>
+            <Text style={styles.sectionTitle}>Available to connect</Text>
+          </View>
+          <Text style={styles.count}>{simulators.length}</Text>
+        </View>
+
+        {loading ? (
+          <ActivityIndicator color={H2Colors.primary} style={styles.loader} />
+        ) : simulators.length === 0 ? (
+          <View style={styles.emptyRow}>
+            <Wifi color={H2Colors.textMuted} size={19} />
+            <Text style={styles.emptyText}>No unpaired devices nearby</Text>
+          </View>
+        ) : (
+          <View style={styles.availableList}>
+            {simulators.map((simulator) => (
+              <View key={simulator.id} style={styles.availableRow}>
+                <View style={styles.deviceIcon}>
+                  <Cpu color={H2Colors.primary} size={21} />
+                </View>
+                <View style={styles.availableCopy}>
+                  <Text style={styles.availableModel}>{simulator.model}</Text>
+                  <Text style={styles.serial}>{simulator.serialNumber}</Text>
+                  <View style={styles.signalRow}>
+                    <Wifi color={H2Colors.success} size={12} />
+                    <Text style={styles.signalText}>{simulator.signalStrength}% signal</Text>
+                  </View>
+                </View>
+                <Pressable
+                  accessibilityLabel={`Remove ${simulator.serialNumber}`}
+                  disabled={busyId !== null}
+                  onPress={() => confirmRemoveSimulator(simulator)}
+                  style={styles.iconButton}
+                >
+                  <Trash2 color={H2Colors.textMuted} size={17} />
+                </Pressable>
+                <Pressable
+                  disabled={busyId !== null}
+                  onPress={() => openConnectForm(simulator)}
+                  style={styles.connectButton}
+                >
+                  <Link color={H2Colors.background} size={15} />
+                  <Text style={styles.connectText}>Connect</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+
+        <View style={styles.sectionHeaderConnected}>
+          <View>
+            <Text style={styles.sectionEyebrow}>Home network</Text>
+            <Text style={styles.sectionTitle}>Connected devices</Text>
+          </View>
+          <Text style={styles.count}>{devices.length}</Text>
+        </View>
+
+        <View style={styles.houseVisual}>
+          <Image
+            source={require("../../assets/images/smart-home.png")}
+            resizeMode="cover"
+            style={styles.houseImage}
+          />
+          <View pointerEvents="none" style={styles.imageShade} />
+          {devices.map((device, index) => {
+            const selected = device.id === selectedDevice?.id;
+            const position = markerPositions[index % markerPositions.length];
+
+            return (
+              <Pressable
+                accessibilityLabel={`Select ${device.name}`}
+                key={device.id}
+                onPress={() => setSelectedDeviceId(device.id)}
                 style={[
-                  styles.roomButtonText,
-                  isSelected && styles.selectedRoomButtonText,
+                  styles.marker,
+                  position,
+                  selected && styles.markerSelected,
                 ]}
               >
-                {room.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-      {/* This proves that changing the selected room updates the screen. */}
-      <View style={styles.roomHeader}>
-        <Text style={styles.roomTitle}>{activeRoom?.label}</Text>
-
-        <View style={styles.liveStatus}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveText}>LIVE</Text>
+                <View style={[styles.markerDot, selected && styles.markerDotSelected]} />
+              </Pressable>
+            );
+          })}
+          {devices.length === 0 ? (
+            <View style={styles.noDeviceOverlay}>
+              <Text style={styles.noDeviceText}>No connected device</Text>
+            </View>
+          ) : null}
         </View>
-      </View>
 
-      <View style={styles.metricsGrid}>
-        {metrics.map(({ label, value, Icon }, index) => {
-          const isLastCard = index === metrics.length - 1;
+        {devices.length > 0 ? (
+          <ScrollView
+            contentContainerStyle={styles.deviceSelector}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+          >
+            {devices.map((device) => {
+              const selected = device.id === selectedDevice?.id;
 
-          return (
-            <View
-              key={label}
+              return (
+                <Pressable
+                  key={device.id}
+                  onPress={() => setSelectedDeviceId(device.id)}
+                  style={[
+                    styles.deviceChip,
+                    selected && styles.deviceChipSelected,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.deviceStatusDot,
+                      device.status !== "online" && styles.warningDot,
+                    ]}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.deviceChipText,
+                      selected && styles.deviceChipTextSelected,
+                    ]}
+                  >
+                    {device.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
+
+        {selectedDevice ? (
+          <View style={styles.detailSection}>
+            <View style={styles.deviceHeader}>
+              <View style={styles.deviceHeaderCopy}>
+                <Text style={styles.deviceName}>{selectedDevice.name}</Text>
+                <View style={styles.locationRow}>
+                  <MapPin color={H2Colors.textMuted} size={13} />
+                  <Text style={styles.locationText}>
+                    {selectedDevice.location ?? "No location"}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.liveBadge}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>Live</Text>
+              </View>
+              <Pressable
+                accessibilityLabel={`Edit ${selectedDevice.name}`}
+                onPress={() => openEditForm(selectedDevice)}
+                style={styles.iconButton}
+              >
+                <Pencil color={H2Colors.textSecondary} size={17} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.deviceSerial}>
+              {selectedDevice.serial_number ?? "Physical device"}
+            </Text>
+
+            <View style={styles.metricsGrid}>
+              {metrics.map(({ icon: Icon, label, value }) => (
+                <View key={label} style={styles.metricCard}>
+                  <View style={styles.metricLabelRow}>
+                    <Icon color={H2Colors.primary} size={15} />
+                    <Text style={styles.metricLabel}>{label}</Text>
+                  </View>
+                  <Text style={styles.metricValue}>{value}</Text>
+                </View>
+              ))}
+            </View>
+
+            <Pressable
+              disabled={busyId !== null}
+              onPress={() => void handleValveToggle()}
               style={[
-                styles.metricCard,
-                isLastCard && styles.wideMetricCard,
+                styles.valveButton,
+                !selectedDevice.is_on && styles.valveButtonClosed,
               ]}
             >
-              <View style={styles.metricLabelRow}>
-                <Icon color="#22d3ee" size={15} />
-                <Text style={styles.metricLabel}>{label}</Text>
-              </View>
+              {busyId === selectedDevice.id ? (
+                <ActivityIndicator color={H2Colors.text} size="small" />
+              ) : (
+                <Power color={H2Colors.text} size={18} />
+              )}
+              <Text style={styles.valveText}>
+                {selectedDevice.is_on ? "Close main valve" : "Open main valve"}
+              </Text>
+            </Pressable>
 
-              <Text style={styles.metricValue}>{value}</Text>
+            <Pressable
+              disabled={busyId !== null}
+              onPress={() => confirmDeleteDevice(selectedDevice)}
+              style={styles.disconnectButton}
+            >
+              <Trash2 color={H2Colors.danger} size={16} />
+              <Text style={styles.disconnectText}>Disconnect device</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </ScrollView>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setFormOpen(false)}
+        presentationStyle="pageSheet"
+        visible={formOpen}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.modalKeyboard}
+        >
+          <SafeAreaView style={styles.modalSafeArea}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalEyebrow}>
+                  {formMode === "connect" ? "Pair device" : "Device settings"}
+                </Text>
+                <Text style={styles.modalTitle}>
+                  {formMode === "connect" ? "Connect to this home" : "Edit device"}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityLabel="Close"
+                onPress={() => setFormOpen(false)}
+                style={styles.modalClose}
+              >
+                <X color={H2Colors.text} size={20} />
+              </Pressable>
             </View>
-          );
-        })}
-      </View>
-    </ScrollView>
+
+            {formSimulator ? (
+              <View style={styles.pairIdentity}>
+                <Cpu color={H2Colors.primary} size={22} />
+                <View>
+                  <Text style={styles.pairModel}>{formSimulator.model}</Text>
+                  <Text style={styles.serial}>{formSimulator.serialNumber}</Text>
+                </View>
+              </View>
+            ) : null}
+
+            <Text style={styles.inputLabel}>Device name</Text>
+            <TextInput
+              autoCapitalize="words"
+              onChangeText={setFormName}
+              placeholder="H2 Monitor"
+              placeholderTextColor={H2Colors.textMuted}
+              style={styles.input}
+              value={formName}
+            />
+
+            <Text style={styles.inputLabel}>Location</Text>
+            <TextInput
+              autoCapitalize="words"
+              onChangeText={setFormLocation}
+              placeholder="Main water line"
+              placeholderTextColor={H2Colors.textMuted}
+              style={styles.input}
+              value={formLocation}
+            />
+
+            <Pressable
+              disabled={busyId !== null}
+              onPress={() => void handleSaveForm()}
+              style={styles.saveButton}
+            >
+              {busyId !== null ? (
+                <ActivityIndicator color={H2Colors.background} size="small" />
+              ) : (
+                <Link color={H2Colors.background} size={18} />
+              )}
+              <Text style={styles.saveText}>
+                {formMode === "connect" ? "Connect device" : "Save changes"}
+              </Text>
+            </Pressable>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#070d18",
+  addButton: {
+    alignItems: "center",
+    backgroundColor: H2Colors.primary,
+    borderRadius: H2Radius.large,
+    flexDirection: "row",
+    gap: 7,
+    height: 40,
+    paddingHorizontal: 13,
   },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 64,
-    paddingBottom: 120,
+  addButtonText: {
+    color: H2Colors.background,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 13,
   },
-  eyebrow: {
-    color: "#22d3ee",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  title: {
-    color: "#ffffff",
-    fontSize: 32,
-    fontWeight: "800",
-    marginTop: 6,
-  },
-  roomSelector: {
-    gap: 10,
-    paddingVertical: 24,
-  },
-  roomButton: {
-    backgroundColor: "rgba(255,255,255,0.07)",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  selectedRoomButton: {
-    backgroundColor: "#22d3ee",
-  },
-  roomButtonText: {
-    color: "rgba(255,255,255,0.6)",
+  availableCopy: { flex: 1 },
+  availableList: { gap: 10 },
+  availableModel: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.semibold,
     fontSize: 14,
-    fontWeight: "600",
   },
-  selectedRoomButtonText: {
-    color: "#070d18",
+  availableRow: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 82,
+    padding: 12,
   },
-  roomHeader: {
+  brandRow: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 8,
   },
-  roomTitle: {
-    color: "#ffffff",
-    fontSize: 26,
-    fontWeight: "800",
-  },
-  liveStatus: {
+  connectButton: {
     alignItems: "center",
+    backgroundColor: H2Colors.primary,
+    borderRadius: H2Radius.medium,
+    flexDirection: "row",
+    gap: 5,
+    height: 36,
+    paddingHorizontal: 10,
+  },
+  connectText: {
+    color: H2Colors.background,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 12,
+  },
+  content: {
+    paddingBottom: 120,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  count: {
+    color: H2Colors.primary,
+    fontFamily: H2Fonts.data,
+    fontSize: 15,
+  },
+  description: {
+    color: H2Colors.textSecondary,
+    fontFamily: H2Fonts.regular,
+    fontSize: 14,
+    marginTop: 7,
+  },
+  detailSection: { marginTop: 6 },
+  deviceChip: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.borderSoft,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
     flexDirection: "row",
     gap: 7,
+    height: 40,
+    maxWidth: 190,
+    paddingHorizontal: 12,
   },
-  liveDot: {
-    backgroundColor: "#10b981",
+  deviceChipSelected: {
+    backgroundColor: H2Colors.primary,
+    borderColor: H2Colors.primary,
+  },
+  deviceChipText: {
+    color: H2Colors.textSecondary,
+    fontFamily: H2Fonts.medium,
+    fontSize: 13,
+    maxWidth: 145,
+  },
+  deviceChipTextSelected: { color: H2Colors.background },
+  deviceHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  deviceHeaderCopy: { flex: 1 },
+  deviceIcon: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surfaceSelected,
+    borderRadius: H2Radius.large,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  deviceName: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.bold,
+    fontSize: 23,
+  },
+  deviceSelector: { gap: 9, paddingVertical: 18 },
+  deviceSerial: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.data,
+    fontSize: 10,
+    marginTop: 9,
+    textTransform: "uppercase",
+  },
+  deviceStatusDot: {
+    backgroundColor: H2Colors.success,
     borderRadius: 4,
-    height: 8,
-    width: 8,
+    height: 7,
+    width: 7,
   },
-  liveText: {
-    color: "#10b981",
-    fontSize: 11,
-    fontWeight: "800",
+  disconnectButton: {
+    alignItems: "center",
+    borderColor: "rgba(248, 113, 113, 0.3)",
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    height: 48,
+    justifyContent: "center",
+    marginTop: 10,
   },
+  disconnectText: {
+    color: H2Colors.danger,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 14,
+  },
+  emptyRow: {
+    alignItems: "center",
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderStyle: "dashed",
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 9,
+    justifyContent: "center",
+    minHeight: 72,
+  },
+  emptyText: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.regular,
+    fontSize: 13,
+  },
+  errorBanner: {
+    alignItems: "center",
+    backgroundColor: "rgba(251, 191, 36, 0.1)",
+    borderColor: "rgba(251, 191, 36, 0.3)",
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 22,
+    padding: 13,
+  },
+  errorText: {
+    color: H2Colors.warning,
+    flex: 1,
+    fontFamily: H2Fonts.regular,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  eyebrow: {
+    color: H2Colors.primary,
+    fontFamily: H2Fonts.data,
+    fontSize: 10,
+    textTransform: "uppercase",
+  },
+  heading: { marginBottom: 30, marginTop: 34 },
+  houseImage: { height: "100%", width: "100%" },
   houseVisual: {
     aspectRatio: 16 / 11,
-    borderColor: "rgba(34,211,238,0.22)",
-    borderRadius: 16,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
     borderWidth: 1,
-    marginTop: 24,
+    marginTop: 18,
     overflow: "hidden",
     position: "relative",
     width: "100%",
   },
-  houseImage: {
-    height: "100%",
-    width: "100%",
+  iconButton: {
+    alignItems: "center",
+    borderRadius: H2Radius.medium,
+    height: 36,
+    justifyContent: "center",
+    width: 34,
   },
   imageShade: {
-    backgroundColor: "rgba(7,13,24,0.18)",
+    backgroundColor: "rgba(2, 8, 23, 0.26)",
     bottom: 0,
     left: 0,
     position: "absolute",
     right: 0,
     top: 0,
   },
-  roomMarker: {
-    alignItems: "center",
-    backgroundColor: "rgba(7,13,24,0.72)",
-    borderColor: "rgba(34,211,238,0.42)",
-    borderRadius: 22,
-    borderWidth: 2,
-    height: 44,
-    justifyContent: "center",
-    position: "absolute",
-    transform: [{ translateX: -22 }, { translateY: -22 }],
-    width: 44,
+  input: {
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    color: H2Colors.text,
+    fontFamily: H2Fonts.regular,
+    fontSize: 15,
+    height: 52,
+    paddingHorizontal: 14,
   },
-  selectedRoomMarker: {
-    backgroundColor: "rgba(34,211,238,0.25)",
-    borderColor: "#22d3ee",
-  },
-  markerDot: {
-    backgroundColor: "rgba(255,255,255,0.85)",
-    borderRadius: 5,
-    height: 10,
-    width: 10,
-  },
-  selectedMarkerDot: {
-    backgroundColor: "#22d3ee",
-  },
-  markerLabel: {
-    backgroundColor: "rgba(7,13,24,0.9)",
-    borderRadius: 5,
-    color: "#67e8f9",
-    fontSize: 7,
-    fontWeight: "800",
-    left: -24,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    position: "absolute",
-    textAlign: "center",
-    textTransform: "uppercase",
-    top: 48,
-    width: 88,
-  },
-  metricsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
+  inputLabel: {
+    color: H2Colors.textSecondary,
+    fontFamily: H2Fonts.medium,
+    fontSize: 12,
+    marginBottom: 8,
     marginTop: 20,
   },
-  metricCard: {
-    backgroundColor: "rgba(4,10,22,0.7)",
-    borderColor: "rgba(34,211,238,0.22)",
+  liveBadge: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  liveDot: {
+    backgroundColor: H2Colors.success,
+    borderRadius: 4,
+    height: 7,
+    width: 7,
+  },
+  liveText: {
+    color: H2Colors.success,
+    fontFamily: H2Fonts.data,
+    fontSize: 10,
+    textTransform: "uppercase",
+  },
+  loader: { marginVertical: 28 },
+  locationRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    marginTop: 5,
+  },
+  locationText: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.regular,
+    fontSize: 12,
+  },
+  marker: {
+    alignItems: "center",
+    backgroundColor: "rgba(2, 8, 23, 0.8)",
+    borderColor: H2Colors.border,
     borderRadius: 8,
+    borderWidth: 2,
+    height: 34,
+    justifyContent: "center",
+    position: "absolute",
+    transform: [{ translateX: -17 }, { translateY: -17 }],
+    width: 34,
+  },
+  markerDot: {
+    backgroundColor: H2Colors.textSecondary,
+    borderRadius: 4,
+    height: 8,
+    width: 8,
+  },
+  markerDotSelected: { backgroundColor: H2Colors.primary },
+  markerSelected: {
+    backgroundColor: "rgba(34, 211, 238, 0.22)",
+    borderColor: H2Colors.primary,
+  },
+  metricCard: {
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
     borderWidth: 1,
     flexBasis: "47%",
     flexGrow: 1,
-    minHeight: 104,
-    padding: 14,
+    minHeight: 96,
+    padding: 13,
   },
-  wideMetricCard: {
-    flexBasis: "100%",
+  metricLabel: {
+    color: H2Colors.textMuted,
+    flex: 1,
+    fontFamily: H2Fonts.data,
+    fontSize: 9,
+    textTransform: "uppercase",
   },
   metricLabelRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: 7,
   },
-  metricLabel: {
-    color: "rgba(34,211,238,0.75)",
-    flex: 1,
+  metricValue: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.bold,
+    fontSize: 18,
+    marginTop: 13,
+  },
+  metricsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 20,
+  },
+  modalClose: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surface,
+    borderRadius: H2Radius.large,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  modalEyebrow: {
+    color: H2Colors.primary,
+    fontFamily: H2Fonts.data,
     fontSize: 10,
-    fontWeight: "800",
     textTransform: "uppercase",
   },
-  metricValue: {
-    color: "#ffffff",
-    fontSize: 20,
-    fontWeight: "800",
-    marginTop: 12,
+  modalHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
+  modalKeyboard: { backgroundColor: H2Colors.background, flex: 1 },
+  modalSafeArea: {
+    backgroundColor: H2Colors.background,
+    flex: 1,
+    padding: 20,
+  },
+  modalTitle: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.bold,
+    fontSize: 24,
+    marginTop: 6,
+  },
+  noDeviceOverlay: {
+    alignItems: "center",
+    bottom: 0,
+    justifyContent: "center",
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+  },
+  noDeviceText: {
+    backgroundColor: "rgba(2, 8, 23, 0.82)",
+    borderRadius: H2Radius.medium,
+    color: H2Colors.textSecondary,
+    fontFamily: H2Fonts.medium,
+    fontSize: 12,
+    overflow: "hidden",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  pairIdentity: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 32,
+    padding: 15,
+  },
+  pairModel: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 14,
+  },
+  pressed: { opacity: 0.76 },
+  safeArea: { backgroundColor: H2Colors.background, flex: 1 },
+  saveButton: {
+    alignItems: "center",
+    backgroundColor: H2Colors.primary,
+    borderRadius: H2Radius.large,
+    flexDirection: "row",
+    gap: 8,
+    height: 52,
+    justifyContent: "center",
+    marginTop: 32,
+  },
+  saveText: {
+    color: H2Colors.background,
+    fontFamily: H2Fonts.bold,
+    fontSize: 14,
+  },
+  sectionEyebrow: {
+    color: H2Colors.primary,
+    fontFamily: H2Fonts.data,
+    fontSize: 9,
+    textTransform: "uppercase",
+  },
+  sectionHeader: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 13,
+  },
+  sectionHeaderConnected: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 36,
+  },
+  sectionTitle: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 18,
+    marginTop: 5,
+  },
+  serial: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.data,
+    fontSize: 9,
+    marginTop: 3,
+  },
+  signalRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    marginTop: 6,
+  },
+  signalText: {
+    color: H2Colors.success,
+    fontFamily: H2Fonts.data,
+    fontSize: 8,
+  },
+  title: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.bold,
+    fontSize: 30,
+    marginTop: 8,
+  },
+  valveButton: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surfaceRaised,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    height: 52,
+    justifyContent: "center",
+    marginTop: 18,
+  },
+  valveButtonClosed: {
+    backgroundColor: "rgba(52, 211, 153, 0.14)",
+    borderColor: "rgba(52, 211, 153, 0.35)",
+  },
+  valveText: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 14,
+  },
+  warningDot: { backgroundColor: H2Colors.warning },
 });
