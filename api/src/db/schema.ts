@@ -77,6 +77,22 @@ const databaseSchemaSql = `
     ALTER COLUMN created_at SET DEFAULT now(),
     ALTER COLUMN last_seen_at SET DEFAULT now();
 
+  CREATE TABLE IF NOT EXISTS home_profiles (
+    user_id TEXT PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+    home_name TEXT NOT NULL DEFAULT 'My Home',
+    address TEXT,
+    timezone TEXT NOT NULL DEFAULT 'Australia/Adelaide',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  ALTER TABLE home_profiles
+    ADD COLUMN IF NOT EXISTS home_name TEXT NOT NULL DEFAULT 'My Home',
+    ADD COLUMN IF NOT EXISTS address TEXT,
+    ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'Australia/Adelaide',
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
   CREATE TABLE IF NOT EXISTS devices (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     name TEXT NOT NULL DEFAULT 'H2GO Sensor',
@@ -136,6 +152,19 @@ const databaseSchemaSql = `
       ALTER TABLE devices
         ADD CONSTRAINT devices_status_check
         CHECK (status IN ('online', 'offline', 'warning'));
+    END IF;
+  END;
+  $$;
+
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger WHERE tgname = 'set_home_profiles_updated_at'
+    ) THEN
+      CREATE TRIGGER set_home_profiles_updated_at
+      BEFORE UPDATE ON home_profiles
+      FOR EACH ROW
+      EXECUTE FUNCTION public.set_row_updated_at();
     END IF;
   END;
   $$;
