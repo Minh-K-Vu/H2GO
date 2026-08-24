@@ -133,7 +133,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <AppTabs />
     </AuthProvider>
   );
@@ -142,7 +142,7 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   activeTabIcon: {
     backgroundColor: H2Colors.surfaceSelected,
-    borderColor: H2Colors.border,
+    borderColor: "transparent",
   },
   loadingScreen: {
     alignItems: "center",
@@ -155,17 +155,29 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     backgroundColor: H2Colors.navigation,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
     borderTopColor: H2Colors.border,
-    height: 86,
+    borderWidth: 1,
+    bottom: 8,
+    elevation: 10,
+    height: 78,
+    left: 12,
     paddingBottom: 8,
-    paddingTop: 8,
+    paddingTop: 7,
+    position: "absolute",
+    right: 12,
+    shadowColor: H2Colors.black,
+    shadowOffset: { width: 0, height: 7 },
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
   },
   tabIcon: {
     alignItems: "center",
     borderColor: "transparent",
     borderRadius: H2Radius.large,
     borderWidth: 1,
-    height: 34,
+    height: 32,
     justifyContent: "center",
     width: 44,
   },
@@ -174,6 +186,6 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontFamily: H2Fonts.semibold,
-    fontSize: 10,
+    fontSize: 9,
   },
 });

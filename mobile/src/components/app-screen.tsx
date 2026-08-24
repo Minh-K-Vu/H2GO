@@ -1,6 +1,7 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { H2Brand } from "@/components/h2-brand";
 import { H2Colors, H2Fonts } from "@/constants/theme";
@@ -28,13 +29,15 @@ export function AppScreen({
         {action}
       </View>
 
-      <View style={styles.heading}>
-        {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.description}>{description}</Text>
-      </View>
+      <Animated.View entering={FadeInDown.duration(420).springify().damping(18)}>
+        <View style={styles.heading}>
+          {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.description}>{description}</Text>
+        </View>
 
-      {children}
+        {children}
+      </Animated.View>
     </View>
   );
 
@@ -63,25 +66,26 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 10,
   },
   description: {
     color: H2Colors.textSecondary,
     fontFamily: H2Fonts.regular,
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 7,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 6,
     maxWidth: 340,
   },
   eyebrow: {
     color: H2Colors.primary,
     fontFamily: H2Fonts.data,
-    fontSize: 10,
+    fontSize: 9,
+    letterSpacing: 0,
     textTransform: "uppercase",
   },
   heading: {
-    marginBottom: 28,
-    marginTop: 34,
+    marginBottom: 24,
+    marginTop: 28,
   },
   safeArea: {
     backgroundColor: H2Colors.background,
@@ -94,8 +98,8 @@ const styles = StyleSheet.create({
   title: {
     color: H2Colors.text,
     fontFamily: H2Fonts.bold,
-    fontSize: 30,
-    lineHeight: 36,
-    marginTop: 8,
+    fontSize: 32,
+    lineHeight: 38,
+    marginTop: 7,
   },
 });

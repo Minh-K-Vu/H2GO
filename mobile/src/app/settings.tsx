@@ -222,6 +222,29 @@ export default function SettingsScreen() {
           <ActivityIndicator color={H2Colors.primary} style={styles.loader} />
         ) : (
           <>
+            <View style={styles.profileCard}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {(account?.name ?? "H2")
+                    .split(" ")
+                    .slice(0, 2)
+                    .map((part) => part[0])
+                    .join("")
+                    .toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.profileCopy}>
+                <Text style={styles.profileName}>{account?.name ?? "H2 member"}</Text>
+                <Text numberOfLines={1} style={styles.profileEmail}>
+                  {account?.email}
+                </Text>
+              </View>
+              <View style={styles.protectedBadge}>
+                <View style={styles.protectedDot} />
+                <Text style={styles.protectedText}>Protected</Text>
+              </View>
+            </View>
+
             <View style={styles.group}>
               {settings.map(({ id, icon: Icon, label, detail }, index) => (
                 <Pressable
@@ -493,6 +516,19 @@ function SaveButton({
 }
 
 const styles = StyleSheet.create({
+  avatar: {
+    alignItems: "center",
+    backgroundColor: H2Colors.text,
+    borderRadius: H2Radius.large,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  avatarText: {
+    color: H2Colors.white,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 16,
+  },
   closeButton: {
     alignItems: "center",
     backgroundColor: H2Colors.surface,
@@ -528,6 +564,10 @@ const styles = StyleSheet.create({
     borderRadius: H2Radius.large,
     borderWidth: 1,
     overflow: "hidden",
+    shadowColor: H2Colors.black,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.04,
+    shadowRadius: 14,
   },
   input: {
     backgroundColor: H2Colors.surface,
@@ -554,7 +594,7 @@ const styles = StyleSheet.create({
     gap: 8,
     height: 50,
     justifyContent: "center",
-    marginTop: 18,
+    marginTop: 14,
   },
   logoutText: {
     color: H2Colors.danger,
@@ -585,6 +625,49 @@ const styles = StyleSheet.create({
     backgroundColor: H2Colors.background,
     flex: 1,
     padding: 20,
+  },
+  profileCard: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: 12,
+    padding: 14,
+  },
+  profileCopy: { flex: 1, marginLeft: 12 },
+  profileEmail: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.regular,
+    fontSize: 11,
+    marginTop: 3,
+  },
+  profileName: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 15,
+  },
+  protectedBadge: {
+    alignItems: "center",
+    backgroundColor: "rgba(20, 155, 116, 0.09)",
+    borderRadius: H2Radius.medium,
+    flexDirection: "row",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  protectedDot: {
+    backgroundColor: H2Colors.success,
+    borderRadius: 3,
+    height: 6,
+    width: 6,
+  },
+  protectedText: {
+    color: H2Colors.success,
+    fontFamily: H2Fonts.data,
+    fontSize: 8,
+    textTransform: "uppercase",
   },
   modalTitle: {
     color: H2Colors.text,

@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import {
   Cpu,
   Droplets,
@@ -443,7 +444,10 @@ export default function DevicesScreen() {
           <Text style={styles.count}>{devices.length}</Text>
         </View>
 
-        <View style={styles.houseVisual}>
+        <Animated.View
+          entering={FadeInDown.delay(80).duration(460).springify().damping(18)}
+          style={styles.houseVisual}
+        >
           <Image
             source={require("../../assets/images/smart-home.png")}
             resizeMode="cover"
@@ -474,7 +478,7 @@ export default function DevicesScreen() {
               <Text style={styles.noDeviceText}>No connected device</Text>
             </View>
           ) : null}
-        </View>
+        </Animated.View>
 
         {devices.length > 0 ? (
           <ScrollView
@@ -565,9 +569,9 @@ export default function DevicesScreen() {
               ]}
             >
               {busyId === selectedDevice.id ? (
-                <ActivityIndicator color={H2Colors.text} size="small" />
+                <ActivityIndicator color={H2Colors.white} size="small" />
               ) : (
-                <Power color={H2Colors.text} size={18} />
+                <Power color={H2Colors.white} size={18} />
               )}
               <Text style={styles.valveText}>
                 {selectedDevice.is_on ? "Close main valve" : "Open main valve"}
@@ -698,6 +702,10 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 82,
     padding: 12,
+    shadowColor: H2Colors.black,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
   },
   brandRow: {
     alignItems: "center",
@@ -857,6 +865,10 @@ const styles = StyleSheet.create({
     marginTop: 18,
     overflow: "hidden",
     position: "relative",
+    shadowColor: H2Colors.black,
+    shadowOffset: { width: 0, height: 9 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
     width: "100%",
   },
   iconButton: {
@@ -953,6 +965,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     minHeight: 96,
     padding: 13,
+    shadowColor: H2Colors.black,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
   },
   metricLabel: {
     color: H2Colors.textMuted,
@@ -1110,8 +1126,8 @@ const styles = StyleSheet.create({
   },
   valveButton: {
     alignItems: "center",
-    backgroundColor: H2Colors.surfaceRaised,
-    borderColor: H2Colors.border,
+    backgroundColor: H2Colors.text,
+    borderColor: H2Colors.text,
     borderRadius: H2Radius.large,
     borderWidth: 1,
     flexDirection: "row",
@@ -1121,11 +1137,11 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   valveButtonClosed: {
-    backgroundColor: "rgba(52, 211, 153, 0.14)",
-    borderColor: "rgba(52, 211, 153, 0.35)",
+    backgroundColor: H2Colors.success,
+    borderColor: H2Colors.success,
   },
   valveText: {
-    color: H2Colors.text,
+    color: H2Colors.white,
     fontFamily: H2Fonts.semibold,
     fontSize: 14,
   },

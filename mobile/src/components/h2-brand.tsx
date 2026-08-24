@@ -43,7 +43,7 @@ const styles = StyleSheet.create({
   mark: {
     alignItems: "center",
     backgroundColor: H2Colors.primary,
-    borderRadius: H2Radius.large,
+    borderRadius: H2Radius.medium,
     height: 38,
     justifyContent: "center",
     width: 38,
@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
   product: {
     color: H2Colors.textMuted,
     fontFamily: H2Fonts.regular,
-    fontSize: 10,
+    fontSize: 9,
     marginTop: 1,
   },
 });

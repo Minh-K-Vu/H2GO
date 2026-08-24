@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BarChart } from "react-native-chart-kit";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import {
   Activity,
   Cpu,
@@ -281,7 +282,10 @@ export default function HomeScreen() {
           </View>
         ) : (
           <>
-            <View style={styles.flowHero}>
+            <Animated.View
+              entering={FadeInDown.delay(80).duration(460).springify().damping(18)}
+              style={styles.flowHero}
+            >
               <View>
                 <Text style={styles.flowLabel}>Live household flow</Text>
                 <View style={styles.flowValueRow}>
@@ -290,9 +294,10 @@ export default function HomeScreen() {
                 </View>
               </View>
               <View style={styles.flowIcon}>
-                <Waves color={H2Colors.primary} size={25} />
+                <View style={styles.flowPulse} />
+                <Waves color={H2Colors.white} size={26} />
               </View>
-            </View>
+            </Animated.View>
 
             <View style={styles.insightRow}>
               <Activity color={H2Colors.primary} size={17} />
@@ -407,9 +412,9 @@ export default function HomeScreen() {
               style={styles.shutoffButton}
             >
               {shuttingOff ? (
-                <ActivityIndicator color={H2Colors.text} size="small" />
+                <ActivityIndicator color={H2Colors.white} size="small" />
               ) : (
-                <Power color={H2Colors.text} size={18} />
+                <Power color={H2Colors.white} size={18} />
               )}
               <Text style={styles.shutoffText}>Emergency shut-off</Text>
             </Pressable>
@@ -446,6 +451,7 @@ const styles = StyleSheet.create({
   },
   chart: { borderRadius: H2Radius.large, marginLeft: -8 },
   chartFrame: {
+    backgroundColor: H2Colors.surface,
     borderColor: H2Colors.border,
     borderRadius: H2Radius.large,
     borderWidth: 1,
@@ -533,36 +539,50 @@ const styles = StyleSheet.create({
   },
   flowHero: {
     alignItems: "center",
-    borderBottomColor: H2Colors.border,
-    borderBottomWidth: 1,
-    borderTopColor: H2Colors.border,
-    borderTopWidth: 1,
+    backgroundColor: H2Colors.text,
+    borderRadius: H2Radius.large,
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 24,
+    overflow: "hidden",
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    shadowColor: H2Colors.black,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
   },
   flowIcon: {
     alignItems: "center",
-    backgroundColor: H2Colors.surfaceSelected,
+    backgroundColor: H2Colors.primary,
     borderRadius: H2Radius.large,
-    height: 50,
+    height: 58,
     justifyContent: "center",
-    width: 50,
+    overflow: "hidden",
+    width: 58,
+  },
+  flowPulse: {
+    backgroundColor: H2Colors.aqua,
+    bottom: -18,
+    height: 34,
+    opacity: 0.35,
+    position: "absolute",
+    transform: [{ rotate: "-8deg" }],
+    width: 80,
   },
   flowLabel: {
-    color: H2Colors.textMuted,
+    color: "rgba(255, 255, 255, 0.62)",
     fontFamily: H2Fonts.data,
     fontSize: 10,
     textTransform: "uppercase",
   },
   flowUnit: {
-    color: H2Colors.primary,
+    color: H2Colors.aqua,
     fontFamily: H2Fonts.data,
     fontSize: 13,
     marginBottom: 7,
   },
   flowValue: {
-    color: H2Colors.text,
+    color: H2Colors.white,
     fontFamily: H2Fonts.bold,
     fontSize: 42,
   },
@@ -601,6 +621,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     minHeight: 98,
     padding: 13,
+    shadowColor: H2Colors.black,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
   },
   metricLabel: {
     color: H2Colors.textMuted,
@@ -652,8 +676,8 @@ const styles = StyleSheet.create({
   },
   shutoffButton: {
     alignItems: "center",
-    backgroundColor: H2Colors.surfaceRaised,
-    borderColor: H2Colors.border,
+    backgroundColor: H2Colors.text,
+    borderColor: H2Colors.text,
     borderRadius: H2Radius.large,
     borderWidth: 1,
     flexDirection: "row",
@@ -663,7 +687,7 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   shutoffText: {
-    color: H2Colors.text,
+    color: H2Colors.white,
     fontFamily: H2Fonts.semibold,
     fontSize: 14,
   },
