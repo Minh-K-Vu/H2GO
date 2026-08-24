@@ -116,7 +116,7 @@ export default function HomeScreen() {
 
     async function loadHistory() {
       try {
-        const readings = await fetchDeviceReadings(selectedId!, 12);
+        const readings = await fetchDeviceReadings(selectedId!, 36);
 
         if (active) {
           setHistory(readings.reverse());
@@ -164,9 +164,10 @@ export default function HomeScreen() {
   const chartReadings = history.length > 0 ? history : [];
   const chartData = {
     labels: chartReadings.map((item, index) =>
-      index % 3 === 0
+      index % 4 === 0
         ? new Date(item.timestamp).toLocaleTimeString([], {
             hour: "numeric",
+            minute: "2-digit",
           })
         : "",
     ),
@@ -179,6 +180,7 @@ export default function HomeScreen() {
       },
     ],
   };
+  const chartWidth = Math.max(width - 42, chartReadings.length * 28);
 
   function confirmEmergencyShutoff() {
     const devicesToClose = snapshots.filter(({ device }) => device.is_on);
@@ -304,6 +306,63 @@ export default function HomeScreen() {
               <Text style={styles.insightText}>{insight}</Text>
             </View>
 
+            <View style={styles.flowBreakdownHeader}>
+              <View>
+                <Text style={styles.sectionEyebrow}>Current flow</Text>
+                <Text style={styles.sectionTitle}>All devices</Text>
+              </View>
+              <Text style={styles.updatedText}>Live</Text>
+            </View>
+
+            <View style={styles.flowBreakdown}>
+              {snapshots.map((snapshot, index) => {
+                const flow = snapshot.latest?.flowLpm ?? 0;
+                const share = totalCurrentFlow > 0 ? (flow / totalCurrentFlow) * 100 : 0;
+
+                return (
+                  <Pressable
+                    key={snapshot.device.id}
+                    onPress={() => setSelectedDeviceId(snapshot.device.id)}
+                    style={[
+                      styles.flowDeviceRow,
+                      index > 0 && styles.flowDeviceBorder,
+                    ]}
+                  >
+                    <View style={styles.flowDeviceTopRow}>
+                      <View style={styles.flowDeviceIdentity}>
+                        <View
+                          style={[
+                            styles.chipDot,
+                            snapshot.device.status !== "online" && styles.flowDeviceWarning,
+                          ]}
+                        />
+                        <View style={styles.flowDeviceCopy}>
+                          <Text numberOfLines={1} style={styles.flowDeviceName}>
+                            {snapshot.device.name}
+                          </Text>
+                          <Text numberOfLines={1} style={styles.flowDeviceLocation}>
+                            {snapshot.device.location ?? "No location"}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.flowDeviceValueRow}>
+                        <Text style={styles.flowDeviceValue}>{flow.toFixed(2)}</Text>
+                        <Text style={styles.flowDeviceUnit}>L/min</Text>
+                      </View>
+                    </View>
+                    <View style={styles.flowTrack}>
+                      <View
+                        style={[
+                          styles.flowTrackValue,
+                          { width: `${Math.max(flow > 0 ? 4 : 0, share)}%` },
+                        ]}
+                      />
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             <ScrollView
               contentContainerStyle={styles.deviceSelector}
               horizontal
@@ -344,43 +403,46 @@ export default function HomeScreen() {
                 </Text>
               </View>
               <Text style={styles.updatedText}>
-                {selectedSnapshot?.latest
-                  ? new Date(selectedSnapshot.latest.timestamp).toLocaleTimeString([], {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })
-                  : "Waiting"}
+                {chartReadings.length} readings
               </Text>
             </View>
 
             <View style={styles.chartFrame}>
-              <BarChart
-                data={chartData}
-                width={Math.max(280, width - 42)}
-                height={190}
-                yAxisLabel=""
-                yAxisSuffix=""
-                fromZero
-                showValuesOnTopOfBars={false}
-                withInnerLines
-                chartConfig={{
-                  backgroundColor: H2Colors.surface,
-                  backgroundGradientFrom: H2Colors.surface,
-                  backgroundGradientTo: H2Colors.surface,
-                  barPercentage: 0.55,
-                  color: () => H2Colors.primary,
-                  decimalPlaces: 1,
-                  labelColor: () => H2Colors.textMuted,
-                  propsForBackgroundLines: {
-                    stroke: H2Colors.borderSoft,
-                  },
-                  propsForLabels: {
-                    fontFamily: H2Fonts.data,
-                    fontSize: 9,
-                  },
-                }}
-                style={styles.chart}
-              />
+              <ScrollView
+                contentContainerStyle={styles.chartScrollContent}
+                contentOffset={{ x: Math.max(0, chartWidth - (width - 42)), y: 0 }}
+                horizontal
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={false}
+              >
+                <BarChart
+                  data={chartData}
+                  width={chartWidth}
+                  height={210}
+                  yAxisLabel=""
+                  yAxisSuffix=""
+                  fromZero
+                  showValuesOnTopOfBars={false}
+                  withInnerLines
+                  chartConfig={{
+                    backgroundColor: H2Colors.surface,
+                    backgroundGradientFrom: H2Colors.surface,
+                    backgroundGradientTo: H2Colors.surface,
+                    barPercentage: 0.58,
+                    color: () => H2Colors.primary,
+                    decimalPlaces: 1,
+                    labelColor: () => H2Colors.textMuted,
+                    propsForBackgroundLines: {
+                      stroke: H2Colors.borderSoft,
+                    },
+                    propsForLabels: {
+                      fontFamily: H2Fonts.data,
+                      fontSize: 8,
+                    },
+                  }}
+                  style={styles.chart}
+                />
+              </ScrollView>
             </View>
 
             <View style={styles.statsGrid}>
@@ -458,6 +520,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     overflow: "hidden",
   },
+  chartScrollContent: { minWidth: "100%" },
   chartHeader: {
     alignItems: "flex-end",
     flexDirection: "row",
@@ -550,6 +613,78 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.16,
     shadowRadius: 20,
+  },
+  flowBreakdown: {
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  flowBreakdownHeader: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 11,
+    marginTop: 24,
+  },
+  flowDeviceBorder: {
+    borderTopColor: H2Colors.borderSoft,
+    borderTopWidth: 1,
+  },
+  flowDeviceCopy: { flex: 1, marginLeft: 8 },
+  flowDeviceIdentity: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    minWidth: 0,
+  },
+  flowDeviceLocation: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.regular,
+    fontSize: 10,
+    marginTop: 3,
+  },
+  flowDeviceName: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.medium,
+    fontSize: 13,
+  },
+  flowDeviceRow: { minHeight: 74, paddingHorizontal: 14, paddingVertical: 12 },
+  flowDeviceTopRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  flowDeviceUnit: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.data,
+    fontSize: 8,
+    marginBottom: 2,
+  },
+  flowDeviceValue: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.bold,
+    fontSize: 17,
+  },
+  flowDeviceValueRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: 4,
+    marginLeft: 12,
+  },
+  flowDeviceWarning: { backgroundColor: H2Colors.warning },
+  flowTrack: {
+    backgroundColor: H2Colors.surfaceRaised,
+    borderRadius: 2,
+    height: 4,
+    marginTop: 10,
+    overflow: "hidden",
+  },
+  flowTrackValue: {
+    backgroundColor: H2Colors.primary,
+    borderRadius: 2,
+    height: "100%",
   },
   flowIcon: {
     alignItems: "center",
