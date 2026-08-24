@@ -2,7 +2,10 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool } from "../db/pool";
 import { requireRegisteredUser, requireRole } from "../middleware/auth";
-import { createSimulatedHistory } from "../simulation/telemetry";
+import {
+  createSimulatedHistory,
+  getSimulationBucket,
+} from "../simulation/telemetry";
 
 const simulatorsRouter = Router();
 
@@ -227,16 +230,17 @@ simulatorsRouter.post(
       );
       const values: unknown[] = [];
       const placeholders = history.map((reading, index) => {
-        const offset = index * 6;
+        const offset = index * 7;
         values.push(
           device.id,
           device.name,
           reading.flowLpm,
           reading.pressureBar,
           reading.temperatureC,
+          getSimulationBucket(reading.timestamp),
           reading.timestamp,
         );
-        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`;
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
       });
 
       await client.query(
@@ -246,6 +250,7 @@ simulatorsRouter.post(
            flow_lpm,
            pressure_bar,
            temperature_c,
+           simulation_bucket,
            ts
          )
          VALUES ${placeholders.join(", ")}`,

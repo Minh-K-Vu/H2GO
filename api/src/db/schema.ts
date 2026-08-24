@@ -147,6 +147,7 @@ const databaseSchemaSql = `
     flow_lpm NUMERIC(12, 3) NOT NULL,
     pressure_bar NUMERIC(12, 3),
     temperature_c NUMERIC(12, 3),
+    simulation_bucket BIGINT,
     ts TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
@@ -156,6 +157,7 @@ const databaseSchemaSql = `
     ADD COLUMN IF NOT EXISTS device_name TEXT,
     ADD COLUMN IF NOT EXISTS pressure_bar NUMERIC(12, 3),
     ADD COLUMN IF NOT EXISTS temperature_c NUMERIC(12, 3),
+    ADD COLUMN IF NOT EXISTS simulation_bucket BIGINT,
     ADD COLUMN IF NOT EXISTS ts TIMESTAMPTZ NOT NULL DEFAULT now(),
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
@@ -265,6 +267,10 @@ const databaseSchemaSql = `
 
   CREATE INDEX IF NOT EXISTS readings_device_ts_idx
     ON readings (device_id, ts DESC);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS readings_simulation_bucket_key
+    ON readings (device_id, simulation_bucket)
+    WHERE simulation_bucket IS NOT NULL;
 
   CREATE INDEX IF NOT EXISTS alerts_device_ts_idx
     ON alerts (device_id, ts DESC);

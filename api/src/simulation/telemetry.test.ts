@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createSimulatedHistory,
   createSimulatedTelemetry,
+  getSimulationBucket,
 } from "./telemetry";
 
 const timestamp = new Date("2026-08-24T10:00:00.000Z");
@@ -37,4 +38,13 @@ test("history is chronological and contains the requested sample count", () => {
   assert.equal(history.length, 12);
   assert.ok(history[0].timestamp < history[11].timestamp);
   assert.equal(history[11].timestamp.toISOString(), timestamp.toISOString());
+});
+
+test("timestamps within one sample window share a bucket", () => {
+  const first = new Date("2026-08-24T10:00:01.000Z");
+  const second = new Date("2026-08-24T10:00:14.000Z");
+  const nextWindow = new Date("2026-08-24T10:00:16.000Z");
+
+  assert.equal(getSimulationBucket(first), getSimulationBucket(second));
+  assert.notEqual(getSimulationBucket(first), getSimulationBucket(nextWindow));
 });

@@ -5,6 +5,10 @@ export type SimulatedTelemetry = {
   timestamp: Date;
 };
 
+export function getSimulationBucket(timestamp: Date) {
+  return Math.floor(timestamp.getTime() / 15_000);
+}
+
 function round(value: number, decimalPlaces: number) {
   const factor = 10 ** decimalPlaces;
   return Math.round(value * factor) / factor;

@@ -2,7 +2,10 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool } from "../db/pool";
 import { requireRegisteredUser, requireRole } from "../middleware/auth";
-import { createSimulatedTelemetry } from "../simulation/telemetry";
+import {
+  createSimulatedTelemetry,
+  getSimulationBucket,
+} from "../simulation/telemetry";
 
 const devicesRouter = Router();
 
@@ -273,15 +276,20 @@ async function ensureFreshSimulatedReading(deviceId: string) {
        flow_lpm,
        pressure_bar,
        temperature_c,
+       simulation_bucket,
        ts
      )
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (device_id, simulation_bucket)
+       WHERE simulation_bucket IS NOT NULL
+     DO NOTHING`,
     [
       device.id,
       device.name,
       reading.flowLpm,
       reading.pressureBar,
       reading.temperatureC,
+      getSimulationBucket(reading.timestamp),
       reading.timestamp,
     ],
   );
