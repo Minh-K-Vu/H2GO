@@ -1,386 +1,706 @@
+import { useFocusEffect, useRouter } from "expo-router";
 import {
+  ActivityIndicator,
+  Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
+  useWindowDimensions,
   View,
-  Dimensions,
 } from "react-native";
-import { useState } from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { BarChart } from "react-native-chart-kit";
-import { useAuth } from "@/auth/AuthContext";
+import {
+  Activity,
+  Cpu,
+  Droplets,
+  Power,
+  ShieldCheck,
+  Waves,
+} from "lucide-react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-const stats = [
-  {
-    label: "Today's Usage",
-    value: "184 L",
-  },
-  {
-    label: "Saved This Week",
-    value: "74 L",
-  },
-  {
-    label: "Efficiency",
-    value: "92%",
-  },
-  {
-    label: "Leak Status",
-    value: "Secure",
-  },
-];
+import {
+  type Device,
+  type DeviceReading,
+  fetchDeviceReadings,
+  fetchDevices,
+  fetchDeviceTelemetry,
+  setDeviceValve,
+} from "@/api/devices";
+import { H2Brand } from "@/components/h2-brand";
+import { H2Colors, H2Fonts, H2Radius } from "@/constants/theme";
 
-const aiMessages = [
-  "Good morning, Cameron.",
-  "You've already saved 74 litres this week.",
-  "I detected your shower is running longer than normal.",
-];
-
-const usageTabs = {
-  Daily: {
-    labels: ["12am", "6am", "12pm", "6pm"],
-    datasets: [{ data: [4, 22, 9, 28] }],
-  },
-  Weekly: {
-    labels: ["M", "T", "W", "T", "F", "S", "S"],
-    datasets: [{ data: [142, 128, 156, 119, 134, 98, 87] }],
-  },
-  Monthly: {
-    labels: ["W1", "W2", "W3", "W4"],
-    datasets: [{ data: [980, 920, 845, 790] }],
-  },
-  Yearly: {
-    labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-    datasets: [{ data: [4200, 3850, 3600, 3400, 3200, 3050] }],
-  },
+type DeviceSnapshot = {
+  device: Device;
+  latest: DeviceReading | null;
+  litresToday: number;
 };
 
-type UsageTab = keyof typeof usageTabs;
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Could not refresh your home.";
+}
 
 export default function HomeScreen() {
-  const screenWidth = Dimensions.get("window").width;
-  const [holidayMode, setHolidayMode] = useState(false);
-  const [selectedTab, setSelectedTab] = useState<UsageTab>("Daily");
-  const [dashboardStats] = useState(stats);
-  const { signOut } = useAuth();
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+  const [snapshots, setSnapshots] = useState<DeviceSnapshot[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [history, setHistory] = useState<DeviceReading[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [shuttingOff, setShuttingOff] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function handleLogout() {
-    await signOut();
+  const selectedSnapshot = useMemo(
+    () =>
+      snapshots.find(({ device }) => device.id === selectedDeviceId) ??
+      snapshots[0],
+    [selectedDeviceId, snapshots],
+  );
+  const selectedId = selectedSnapshot?.device.id;
+
+  const loadDashboard = useCallback(async (showRefresh = false) => {
+    if (showRefresh) {
+      setRefreshing(true);
+    }
+
+    try {
+      const devices = await fetchDevices();
+      const nextSnapshots = await Promise.all(
+        devices.map(async (device) => {
+          const telemetry = await fetchDeviceTelemetry(device.id);
+
+          return {
+            device,
+            latest: telemetry.latest,
+            litresToday: telemetry.today.litresToday,
+          };
+        }),
+      );
+      setSnapshots(nextSnapshots);
+      setSelectedDeviceId((current) => {
+        if (current && devices.some((device) => device.id === current)) {
+          return current;
+        }
+
+        return devices[0]?.id ?? null;
+      });
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadDashboard();
+      const interval = setInterval(() => void loadDashboard(), 15_000);
+
+      return () => clearInterval(interval);
+    }, [loadDashboard]),
+  );
+
+  useEffect(() => {
+    if (!selectedId) {
+      return undefined;
+    }
+
+    let active = true;
+
+    async function loadHistory() {
+      try {
+        const readings = await fetchDeviceReadings(selectedId!, 12);
+
+        if (active) {
+          setHistory(readings.reverse());
+        }
+      } catch (requestError) {
+        if (active) {
+          setError(getErrorMessage(requestError));
+        }
+      }
+    }
+
+    void loadHistory();
+    const interval = setInterval(() => void loadHistory(), 15_000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [selectedId]);
+
+  const totalCurrentFlow = snapshots.reduce(
+    (sum, snapshot) => sum + (snapshot.latest?.flowLpm ?? 0),
+    0,
+  );
+  const totalToday = snapshots.reduce(
+    (sum, snapshot) => sum + snapshot.litresToday,
+    0,
+  );
+  const onlineDevices = snapshots.filter(
+    ({ device }) => device.status === "online",
+  ).length;
+  const openValves = snapshots.filter(({ device }) => device.is_on).length;
+  const systemHealthy =
+    snapshots.length > 0 && onlineDevices === snapshots.length;
+
+  const insight =
+    snapshots.length === 0
+      ? "No monitor is connected to this home."
+      : totalCurrentFlow === 0
+        ? "No water is flowing through your connected monitors right now."
+        : totalCurrentFlow > 12
+          ? "Current household flow is higher than the usual daytime range."
+          : "Water flow is within the normal household range.";
+
+  const chartReadings = history.length > 0 ? history : [];
+  const chartData = {
+    labels: chartReadings.map((item, index) =>
+      index % 3 === 0
+        ? new Date(item.timestamp).toLocaleTimeString([], {
+            hour: "numeric",
+          })
+        : "",
+    ),
+    datasets: [
+      {
+        data:
+          chartReadings.length > 0
+            ? chartReadings.map((item) => item.flowLpm)
+            : [0],
+      },
+    ],
+  };
+
+  function confirmEmergencyShutoff() {
+    const devicesToClose = snapshots.filter(({ device }) => device.is_on);
+
+    if (devicesToClose.length === 0) {
+      Alert.alert("Valves already closed", "No connected valve is currently open.");
+      return;
+    }
+
+    Alert.alert(
+      "Close every main valve?",
+      `${devicesToClose.length} connected valve${devicesToClose.length === 1 ? "" : "s"} will stop water flow.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Close valves",
+          style: "destructive",
+          onPress: () => void handleEmergencyShutoff(devicesToClose),
+        },
+      ],
+    );
+  }
+
+  async function handleEmergencyShutoff(devicesToClose: DeviceSnapshot[]) {
+    setShuttingOff(true);
+
+    try {
+      await Promise.all(
+        devicesToClose.map(({ device }) => setDeviceValve(device.id, false)),
+      );
+      await loadDashboard();
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setShuttingOff(false);
+    }
   }
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.screenContent}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.header}>
-        <View style={styles.logoCircle}>
-          <Text style={styles.logoText}>H2</Text>
+    <SafeAreaView edges={["top"]} style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            onRefresh={() => void loadDashboard(true)}
+            refreshing={refreshing}
+            tintColor={H2Colors.primary}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.brandRow}>
+          <H2Brand />
+          <View style={styles.systemBadge}>
+            <View
+              style={[
+                styles.systemDot,
+                !systemHealthy && styles.systemDotWarning,
+              ]}
+            />
+            <Text
+              style={[
+                styles.systemText,
+                !systemHealthy && styles.systemTextWarning,
+              ]}
+            >
+              {systemHealthy ? "System online" : "Needs attention"}
+            </Text>
+          </View>
         </View>
 
-        <View>
-          <Text style={styles.homeName}>{"Cameron's Home"}</Text>
-          <Text style={styles.status}>All systems secure</Text>
-        </View>
-      </View>
-      <View style={styles.aiPanel}>
-        {aiMessages.map((message) => (
-          <View key={message} style={styles.aiMessage}>
-            <Text style={styles.aiIcon}>✦</Text>
-            <Text style={styles.aiText}>{message}</Text>
-          </View>
-        ))}
-      </View>
-      <View style={styles.chartCard}>
-        <View style={styles.tabRow}>
-          {(Object.keys(usageTabs) as UsageTab[]).map((tab) => {
-            const isActive = selectedTab === tab;
-
-            return (
-              <Pressable
-                key={tab}
-                onPress={() => setSelectedTab(tab)}
-                style={[styles.tabButton, isActive && styles.activeTabButton]}
-              >
-                <Text
-                  style={[styles.tabText, isActive && styles.activeTabText]}
-                >
-                  {tab}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <BarChart
-          data={usageTabs[selectedTab]}
-          width={screenWidth - 48}
-          height={180}
-          yAxisLabel=""
-          yAxisSuffix="L"
-          chartConfig={{
-            backgroundColor: "#0b1220",
-            backgroundGradientFrom: "#0b1220",
-            backgroundGradientTo: "#0b1220",
-            decimalPlaces: 0,
-            color: () => "#22d3ee",
-            labelColor: () => "rgba(255, 255, 255, 0.55)",
-            barPercentage: 0.65,
-            propsForBackgroundLines: {
-              stroke: "rgba(255, 255, 255, 0.08)",
-            },
-          }}
-          style={styles.chart}
-          fromZero
-        />
-      </View>
-      <View style={styles.statsGrid}>
-        {dashboardStats.map((stat) => (
-          <View key={stat.label} style={styles.statCard}>
-            <Text style={styles.statLabel}>{stat.label}</Text>
-            <Text style={styles.statValue}>{stat.value}</Text>
-          </View>
-        ))}
-      </View>
-      <View style={styles.settingRow}>
-        <View>
-          <Text style={styles.settingTitle}>Holiday Mode</Text>
-          <Text style={styles.settingDescription}>
-            Extra monitoring while you are away
+        <View style={styles.heading}>
+          <Text style={styles.eyebrow}>Whole-home overview</Text>
+          <Text style={styles.title}>Your water, live.</Text>
+          <Text style={styles.description}>
+            A current view of every connected H2 monitor.
           </Text>
         </View>
 
-        <Switch
-          value={holidayMode}
-          onValueChange={setHolidayMode}
-          trackColor={{
-            false: "rgba(255, 255, 255, 0.16)",
-            true: "#22d3ee",
-          }}
-          thumbColor="white"
-        />
+        {error ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
+
+        {loading ? (
+          <View style={styles.loadingBlock}>
+            <ActivityIndicator color={H2Colors.primary} size="large" />
+          </View>
+        ) : snapshots.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Cpu color={H2Colors.primary} size={28} />
+            <Text style={styles.emptyTitle}>No connected monitor</Text>
+            <Pressable
+              onPress={() => router.push("/devices")}
+              style={styles.primaryButton}
+            >
+              <Text style={styles.primaryButtonText}>Open devices</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            <View style={styles.flowHero}>
+              <View>
+                <Text style={styles.flowLabel}>Live household flow</Text>
+                <View style={styles.flowValueRow}>
+                  <Text style={styles.flowValue}>{totalCurrentFlow.toFixed(2)}</Text>
+                  <Text style={styles.flowUnit}>L/min</Text>
+                </View>
+              </View>
+              <View style={styles.flowIcon}>
+                <Waves color={H2Colors.primary} size={25} />
+              </View>
+            </View>
+
+            <View style={styles.insightRow}>
+              <Activity color={H2Colors.primary} size={17} />
+              <Text style={styles.insightText}>{insight}</Text>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.deviceSelector}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+            >
+              {snapshots.map(({ device }) => {
+                const selected = device.id === selectedSnapshot?.device.id;
+
+                return (
+                  <Pressable
+                    key={device.id}
+                    onPress={() => setSelectedDeviceId(device.id)}
+                    style={[
+                      styles.deviceChip,
+                      selected && styles.deviceChipSelected,
+                    ]}
+                  >
+                    <View style={styles.chipDot} />
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.deviceChipText,
+                        selected && styles.deviceChipTextSelected,
+                      ]}
+                    >
+                      {device.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.chartHeader}>
+              <View>
+                <Text style={styles.sectionEyebrow}>Flow history</Text>
+                <Text style={styles.sectionTitle}>
+                  {selectedSnapshot?.device.name}
+                </Text>
+              </View>
+              <Text style={styles.updatedText}>
+                {selectedSnapshot?.latest
+                  ? new Date(selectedSnapshot.latest.timestamp).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })
+                  : "Waiting"}
+              </Text>
+            </View>
+
+            <View style={styles.chartFrame}>
+              <BarChart
+                data={chartData}
+                width={Math.max(280, width - 42)}
+                height={190}
+                yAxisLabel=""
+                yAxisSuffix=""
+                fromZero
+                showValuesOnTopOfBars={false}
+                withInnerLines
+                chartConfig={{
+                  backgroundColor: H2Colors.surface,
+                  backgroundGradientFrom: H2Colors.surface,
+                  backgroundGradientTo: H2Colors.surface,
+                  barPercentage: 0.55,
+                  color: () => H2Colors.primary,
+                  decimalPlaces: 1,
+                  labelColor: () => H2Colors.textMuted,
+                  propsForBackgroundLines: {
+                    stroke: H2Colors.borderSoft,
+                  },
+                  propsForLabels: {
+                    fontFamily: H2Fonts.data,
+                    fontSize: 9,
+                  },
+                }}
+                style={styles.chart}
+              />
+            </View>
+
+            <View style={styles.statsGrid}>
+              <Metric
+                icon={Droplets}
+                label="Today's usage"
+                value={`${totalToday.toFixed(1)} L`}
+              />
+              <Metric
+                icon={Cpu}
+                label="Online devices"
+                value={`${onlineDevices}/${snapshots.length}`}
+              />
+              <Metric
+                icon={Power}
+                label="Open valves"
+                value={String(openValves)}
+              />
+              <Metric
+                icon={ShieldCheck}
+                label="Protection"
+                value={systemHealthy ? "Active" : "Check"}
+              />
+            </View>
+
+            <Pressable
+              disabled={shuttingOff}
+              onPress={confirmEmergencyShutoff}
+              style={styles.shutoffButton}
+            >
+              {shuttingOff ? (
+                <ActivityIndicator color={H2Colors.text} size="small" />
+              ) : (
+                <Power color={H2Colors.text} size={18} />
+              )}
+              <Text style={styles.shutoffText}>Emergency shut-off</Text>
+            </Pressable>
+          </>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+type MetricProps = {
+  icon: typeof Droplets;
+  label: string;
+  value: string;
+};
+
+function Metric({ icon: Icon, label, value }: MetricProps) {
+  return (
+    <View style={styles.metricCard}>
+      <View style={styles.metricLabelRow}>
+        <Icon color={H2Colors.primary} size={15} />
+        <Text style={styles.metricLabel}>{label}</Text>
       </View>
-      <Pressable style={styles.emergencyButton}>
-        <Text style={styles.emergencyText}>Emergency Shut-Off</Text>
-      </Pressable>
-      <Pressable style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Log Out</Text>
-      </Pressable>
-    </ScrollView>
+      <Text style={styles.metricValue}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  apiStatus: {
-    color: "#22d3ee",
-    fontSize: 12,
-    marginTop: 4,
-  },
-  aiPanel: {
-    gap: 10,
-    marginBottom: 24,
-    marginTop: 24,
-  },
-  aiMessage: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  aiIcon: {
-    color: "#22d3ee",
-    fontSize: 14,
-    marginTop: 1,
-  },
-  aiText: {
-    color: "rgba(255, 255, 255, 0.78)",
-    fontSize: 14,
-    lineHeight: 20,
-    flex: 1,
-  },
-
-  settingRow: {
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 16,
-    marginTop: 24,
-    flexDirection: "row",
+  brandRow: {
     alignItems: "center",
+    flexDirection: "row",
     justifyContent: "space-between",
-    gap: 16,
   },
-
-  settingTitle: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  settingDescription: {
-    color: "rgba(255, 255, 255, 0.5)",
-    fontSize: 12,
-    marginTop: 4,
-  },
-
-  chartCard: {
-    backgroundColor: "#070d18",
-    paddingTop: 16,
-    paddingBottom: 8,
-    marginBottom: 24,
+  chart: { borderRadius: H2Radius.large, marginLeft: -8 },
+  chartFrame: {
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    marginTop: 14,
     overflow: "hidden",
   },
-
-  chartTitle: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "700",
-    paddingHorizontal: 16,
-    marginBottom: 8,
-  },
-
-  chart: {
-    borderRadius: 18,
-  },
-
-  screen: {
-    flex: 1,
-    backgroundColor: "#070d18",
-  },
-
-  screenContent: {
-    paddingHorizontal: 24,
-    paddingTop: 72,
-    paddingBottom: 40,
-  },
-
-  header: {
+  chartHeader: {
+    alignItems: "flex-end",
     flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+    justifyContent: "space-between",
+    marginTop: 8,
   },
-
-  logoCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#22d3ee",
-    alignItems: "center",
-    justifyContent: "center",
+  chipDot: {
+    backgroundColor: H2Colors.success,
+    borderRadius: 4,
+    height: 7,
+    width: 7,
   },
-
-  logoText: {
-    color: "#070d18",
+  content: {
+    paddingBottom: 120,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  description: {
+    color: H2Colors.textSecondary,
+    fontFamily: H2Fonts.regular,
     fontSize: 14,
-    fontWeight: "800",
+    marginTop: 8,
   },
-
-  homeName: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "700",
+  deviceChip: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    height: 40,
+    maxWidth: 190,
+    paddingHorizontal: 12,
   },
-
-  status: {
-    color: "#34d399",
+  deviceChipSelected: {
+    backgroundColor: H2Colors.primary,
+    borderColor: H2Colors.primary,
+  },
+  deviceChipText: {
+    color: H2Colors.textSecondary,
+    fontFamily: H2Fonts.medium,
+    fontSize: 13,
+    maxWidth: 145,
+  },
+  deviceChipTextSelected: { color: H2Colors.background },
+  deviceSelector: { gap: 9, paddingVertical: 22 },
+  emptyState: {
+    alignItems: "center",
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    gap: 14,
+    padding: 36,
+  },
+  emptyTitle: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 17,
+  },
+  errorBanner: {
+    backgroundColor: "rgba(251, 191, 36, 0.1)",
+    borderColor: "rgba(251, 191, 36, 0.3)",
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    marginBottom: 18,
+    padding: 12,
+  },
+  errorText: {
+    color: H2Colors.warning,
+    fontFamily: H2Fonts.regular,
     fontSize: 12,
-    marginTop: 2,
   },
-
-  title: {
-    color: "white",
-    fontSize: 34,
-    fontWeight: "800",
-    lineHeight: 40,
-    marginTop: 36,
-    marginBottom: 28,
+  eyebrow: {
+    color: H2Colors.primary,
+    fontFamily: H2Fonts.data,
+    fontSize: 10,
+    textTransform: "uppercase",
   },
-
+  flowHero: {
+    alignItems: "center",
+    borderBottomColor: H2Colors.border,
+    borderBottomWidth: 1,
+    borderTopColor: H2Colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 24,
+  },
+  flowIcon: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surfaceSelected,
+    borderRadius: H2Radius.large,
+    height: 50,
+    justifyContent: "center",
+    width: 50,
+  },
+  flowLabel: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.data,
+    fontSize: 10,
+    textTransform: "uppercase",
+  },
+  flowUnit: {
+    color: H2Colors.primary,
+    fontFamily: H2Fonts.data,
+    fontSize: 13,
+    marginBottom: 7,
+  },
+  flowValue: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.bold,
+    fontSize: 42,
+  },
+  flowValueRow: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 4,
+  },
+  heading: { marginBottom: 28, marginTop: 34 },
+  insightRow: {
+    alignItems: "flex-start",
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 18,
+    padding: 14,
+  },
+  insightText: {
+    color: H2Colors.textSecondary,
+    flex: 1,
+    fontFamily: H2Fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  loadingBlock: { paddingVertical: 70 },
+  metricCard: {
+    backgroundColor: H2Colors.surface,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexBasis: "47%",
+    flexGrow: 1,
+    minHeight: 98,
+    padding: 13,
+  },
+  metricLabel: {
+    color: H2Colors.textMuted,
+    flex: 1,
+    fontFamily: H2Fonts.data,
+    fontSize: 9,
+    textTransform: "uppercase",
+  },
+  metricLabelRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
+  },
+  metricValue: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.bold,
+    fontSize: 20,
+    marginTop: 14,
+  },
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
+    gap: 10,
+    marginTop: 18,
   },
-
-  statCard: {
-    width: "47%",
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    borderColor: "rgba(255, 255, 255, 0.1)",
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 14,
+  primaryButton: {
+    backgroundColor: H2Colors.primary,
+    borderRadius: H2Radius.large,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
   },
-
-  statLabel: {
-    color: "rgba(255, 255, 255, 0.55)",
-    fontSize: 11,
+  primaryButtonText: {
+    color: H2Colors.background,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 13,
+  },
+  safeArea: { backgroundColor: H2Colors.background, flex: 1 },
+  sectionEyebrow: {
+    color: H2Colors.primary,
+    fontFamily: H2Fonts.data,
+    fontSize: 9,
     textTransform: "uppercase",
   },
-
-  statValue: {
-    color: "white",
-    fontSize: 22,
-    fontWeight: "800",
+  sectionTitle: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 17,
+    marginTop: 5,
+  },
+  shutoffButton: {
+    alignItems: "center",
+    backgroundColor: H2Colors.surfaceRaised,
+    borderColor: H2Colors.border,
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 9,
+    height: 52,
+    justifyContent: "center",
+    marginTop: 18,
+  },
+  shutoffText: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.semibold,
+    fontSize: 14,
+  },
+  systemBadge: {
+    alignItems: "center",
+    backgroundColor: "rgba(52, 211, 153, 0.09)",
+    borderColor: "rgba(52, 211, 153, 0.25)",
+    borderRadius: H2Radius.large,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 32,
+    paddingHorizontal: 10,
+  },
+  systemDot: {
+    backgroundColor: H2Colors.success,
+    borderRadius: 4,
+    height: 7,
+    width: 7,
+  },
+  systemDotWarning: { backgroundColor: H2Colors.warning },
+  systemText: {
+    color: H2Colors.success,
+    fontFamily: H2Fonts.data,
+    fontSize: 9,
+    textTransform: "uppercase",
+  },
+  systemTextWarning: { color: H2Colors.warning },
+  title: {
+    color: H2Colors.text,
+    fontFamily: H2Fonts.bold,
+    fontSize: 30,
     marginTop: 8,
   },
-
-  emergencyButton: {
-    backgroundColor: "rgba(245, 158, 11, 0.16)",
-    borderColor: "rgba(245, 158, 11, 0.35)",
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginTop: 24,
-  },
-
-  emergencyText: {
-    color: "#fcd34d",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  logoutButton: {
-    borderColor: "rgba(255, 255, 255, 0.16)",
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginTop: 12,
-  },
-
-  logoutText: {
-    color: "rgba(255, 255, 255, 0.72)",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  tabRow: {
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-
-  tabButton: {
-    flex: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.07)",
-    borderRadius: 10,
-    paddingVertical: 8,
-    alignItems: "center",
-  },
-
-  activeTabButton: {
-    backgroundColor: "#22d3ee",
-  },
-
-  tabText: {
-    color: "rgba(255, 255, 255, 0.6)",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-
-  activeTabText: {
-    color: "#070d18",
+  updatedText: {
+    color: H2Colors.textMuted,
+    fontFamily: H2Fonts.data,
+    fontSize: 9,
   },
 });

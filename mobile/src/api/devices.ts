@@ -105,3 +105,9 @@ export async function fetchDeviceTelemetry(deviceId: string) {
 
   return { latest, today };
 }
+
+export function fetchDeviceReadings(deviceId: string, limit = 12) {
+  return apiRequest<DeviceReading[]>(
+    `/devices/${deviceId}/readings?limit=${limit}`,
+  );
+}
