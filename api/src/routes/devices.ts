@@ -724,6 +724,49 @@ devicesRouter.get("/devices/:id/today-total", async (req, res) => {
   }
 });
 
+devicesRouter.get("/devices/:id/usage-summary", async (req, res) => {
+  try {
+    const deviceId = getRouteParamId(req.params.id);
+    await ensureFreshSimulatedReading(deviceId);
+    const result = await pool.query<{
+      litres_today: string | number;
+      litres_seven_days: string | number;
+      litres_this_month: string | number;
+    }>(
+      `SELECT
+         COALESCE(
+           SUM(flow_lpm) FILTER (WHERE ts >= date_trunc('day', now())),
+           0
+         ) AS litres_today,
+         COALESCE(
+           SUM(flow_lpm) FILTER (WHERE ts >= now() - interval '7 days'),
+           0
+         ) AS litres_seven_days,
+         COALESCE(
+           SUM(flow_lpm) FILTER (WHERE ts >= date_trunc('month', now())),
+           0
+         ) AS litres_this_month
+       FROM readings
+       WHERE device_id = $1`,
+      [deviceId],
+    );
+    const summary = result.rows[0];
+
+    return res.status(200).json({
+      deviceId,
+      litresToday: Number(summary?.litres_today ?? 0),
+      litresSevenDays: Number(summary?.litres_seven_days ?? 0),
+      litresThisMonth: Number(summary?.litres_this_month ?? 0),
+    });
+  } catch (error) {
+    console.error("Failed to fetch usage summary", error);
+
+    return res.status(500).json({
+      error: "Failed to fetch usage summary.",
+    });
+  }
+});
+
 devicesRouter.get("/devices/:id/alerts", async (req, res) => {
   const parsedQuery = alertsQuerySchema.safeParse(req.query);
 

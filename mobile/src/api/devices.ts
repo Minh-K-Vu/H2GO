@@ -40,6 +40,11 @@ export type TodayTotal = {
   litresToday: number;
 };
 
+export type UsageSummary = TodayTotal & {
+  litresSevenDays: number;
+  litresThisMonth: number;
+};
+
 export function fetchDevices() {
   return apiRequest<Device[]>("/devices?sort=-created_date&limit=50");
 }
@@ -98,12 +103,12 @@ export function setDeviceValve(deviceId: string, isOn: boolean) {
 }
 
 export async function fetchDeviceTelemetry(deviceId: string) {
-  const [latest, today] = await Promise.all([
+  const [latest, usage] = await Promise.all([
     apiRequest<DeviceReading | null>(`/devices/${deviceId}/latest`),
-    apiRequest<TodayTotal>(`/devices/${deviceId}/today-total`),
+    apiRequest<UsageSummary>(`/devices/${deviceId}/usage-summary`),
   ]);
 
-  return { latest, today };
+  return { latest, today: usage, usage };
 }
 
 export function fetchDeviceReadings(deviceId: string, limit = 12) {

@@ -38,7 +38,48 @@ type DeviceSnapshot = {
   device: Device;
   latest: DeviceReading | null;
   litresToday: number;
+  litresSevenDays: number;
+  litresThisMonth: number;
 };
+
+const SYSTEM_SCOPE = "system";
+
+function formatWaterVolume(litres: number) {
+  if (litres >= 1000) {
+    return `${(litres / 1000).toFixed(litres >= 10_000 ? 0 : 1)} kL`;
+  }
+
+  return `${litres.toFixed(1)} L`;
+}
+
+function aggregateHistories(histories: DeviceReading[][]) {
+  const chronological = histories.map((readings) => [...readings].reverse());
+  const longestHistory = Math.max(0, ...chronological.map((items) => items.length));
+
+  return Array.from({ length: longestHistory }, (_, index) => {
+    const alignedReadings = chronological.flatMap((readings) => {
+      const readingIndex = readings.length - longestHistory + index;
+      return readingIndex >= 0 ? [readings[readingIndex]] : [];
+    });
+    const newestTimestamp = alignedReadings.reduce(
+      (newest, reading) =>
+        new Date(reading.timestamp).getTime() > new Date(newest).getTime()
+          ? reading.timestamp
+          : newest,
+      alignedReadings[0]?.timestamp ?? new Date().toISOString(),
+    );
+
+    return {
+      id: `system-${index}`,
+      deviceId: SYSTEM_SCOPE,
+      deviceName: "Whole system",
+      flowLpm: alignedReadings.reduce((sum, reading) => sum + reading.flowLpm, 0),
+      pressureBar: null,
+      temperatureC: null,
+      timestamp: newestTimestamp,
+    } satisfies DeviceReading;
+  });
+}
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Could not refresh your home.";
@@ -48,20 +89,30 @@ export default function HomeScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [snapshots, setSnapshots] = useState<DeviceSnapshot[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
-  const [history, setHistory] = useState<DeviceReading[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(SYSTEM_SCOPE);
+  const [historyByDevice, setHistoryByDevice] = useState<
+    Record<string, DeviceReading[]>
+  >({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [shuttingOff, setShuttingOff] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectedSnapshot = useMemo(
-    () =>
-      snapshots.find(({ device }) => device.id === selectedDeviceId) ??
-      snapshots[0],
+    () => snapshots.find(({ device }) => device.id === selectedDeviceId),
     [selectedDeviceId, snapshots],
   );
-  const selectedId = selectedSnapshot?.device.id;
+  const systemHistory = useMemo(
+    () => aggregateHistories(Object.values(historyByDevice)),
+    [historyByDevice],
+  );
+  const history = useMemo(
+    () =>
+      selectedDeviceId === SYSTEM_SCOPE
+        ? systemHistory
+        : [...(historyByDevice[selectedDeviceId] ?? [])].reverse(),
+    [historyByDevice, selectedDeviceId, systemHistory],
+  );
 
   const loadDashboard = useCallback(async (showRefresh = false) => {
     if (showRefresh) {
@@ -77,17 +128,23 @@ export default function HomeScreen() {
           return {
             device,
             latest: telemetry.latest,
-            litresToday: telemetry.today.litresToday,
+            litresToday: telemetry.usage.litresToday,
+            litresSevenDays: telemetry.usage.litresSevenDays,
+            litresThisMonth: telemetry.usage.litresThisMonth,
           };
         }),
       );
       setSnapshots(nextSnapshots);
       setSelectedDeviceId((current) => {
+        if (current === SYSTEM_SCOPE) {
+          return current;
+        }
+
         if (current && devices.some((device) => device.id === current)) {
           return current;
         }
 
-        return devices[0]?.id ?? null;
+        return SYSTEM_SCOPE;
       });
       setError(null);
     } catch (requestError) {
@@ -108,7 +165,7 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    if (!selectedId) {
+    if (snapshots.length === 0) {
       return undefined;
     }
 
@@ -116,10 +173,15 @@ export default function HomeScreen() {
 
     async function loadHistory() {
       try {
-        const readings = await fetchDeviceReadings(selectedId!, 36);
+        const histories = await Promise.all(
+          snapshots.map(async ({ device }) => [
+            device.id,
+            await fetchDeviceReadings(device.id, 36),
+          ] as const),
+        );
 
         if (active) {
-          setHistory(readings.reverse());
+          setHistoryByDevice(Object.fromEntries(histories));
         }
       } catch (requestError) {
         if (active) {
@@ -129,13 +191,10 @@ export default function HomeScreen() {
     }
 
     void loadHistory();
-    const interval = setInterval(() => void loadHistory(), 15_000);
-
     return () => {
       active = false;
-      clearInterval(interval);
     };
-  }, [selectedId]);
+  }, [snapshots]);
 
   const totalCurrentFlow = snapshots.reduce(
     (sum, snapshot) => sum + (snapshot.latest?.flowLpm ?? 0),
@@ -145,12 +204,31 @@ export default function HomeScreen() {
     (sum, snapshot) => sum + snapshot.litresToday,
     0,
   );
+  const totalSevenDays = snapshots.reduce(
+    (sum, snapshot) => sum + snapshot.litresSevenDays,
+    0,
+  );
+  const totalThisMonth = snapshots.reduce(
+    (sum, snapshot) => sum + snapshot.litresThisMonth,
+    0,
+  );
   const onlineDevices = snapshots.filter(
     ({ device }) => device.status === "online",
   ).length;
   const openValves = snapshots.filter(({ device }) => device.is_on).length;
   const systemHealthy =
     snapshots.length > 0 && onlineDevices === snapshots.length;
+  const averageFlow =
+    systemHistory.length > 0
+      ? systemHistory.reduce((sum, reading) => sum + reading.flowLpm, 0) /
+        systemHistory.length
+      : 0;
+  const peakFlow = Math.max(
+    0,
+    ...systemHistory.map((reading) => reading.flowLpm),
+  );
+  const monthlyEstimate = totalToday * 30;
+  const annualEstimate = totalToday * 365;
 
   const insight =
     snapshots.length === 0
@@ -368,8 +446,33 @@ export default function HomeScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
             >
+              <Pressable
+                onPress={() => setSelectedDeviceId(SYSTEM_SCOPE)}
+                style={[
+                  styles.deviceChip,
+                  selectedDeviceId === SYSTEM_SCOPE && styles.deviceChipSelected,
+                ]}
+              >
+                <Waves
+                  color={
+                    selectedDeviceId === SYSTEM_SCOPE
+                      ? H2Colors.background
+                      : H2Colors.primary
+                  }
+                  size={14}
+                />
+                <Text
+                  style={[
+                    styles.deviceChipText,
+                    selectedDeviceId === SYSTEM_SCOPE &&
+                      styles.deviceChipTextSelected,
+                  ]}
+                >
+                  Whole system
+                </Text>
+              </Pressable>
               {snapshots.map(({ device }) => {
-                const selected = device.id === selectedSnapshot?.device.id;
+                const selected = device.id === selectedDeviceId;
 
                 return (
                   <Pressable
@@ -399,7 +502,7 @@ export default function HomeScreen() {
               <View>
                 <Text style={styles.sectionEyebrow}>Flow history</Text>
                 <Text style={styles.sectionTitle}>
-                  {selectedSnapshot?.device.name}
+                  {selectedSnapshot?.device.name ?? "Whole system"}
                 </Text>
               </View>
               <Text style={styles.updatedText}>
@@ -445,11 +548,49 @@ export default function HomeScreen() {
               </ScrollView>
             </View>
 
+            <View style={styles.summaryHeader}>
+              <View>
+                <Text style={styles.sectionEyebrow}>Water report</Text>
+                <Text style={styles.sectionTitle}>Usage summary</Text>
+              </View>
+              <Text style={styles.updatedText}>Whole system</Text>
+            </View>
+
             <View style={styles.statsGrid}>
               <Metric
                 icon={Droplets}
                 label="Today's usage"
-                value={`${totalToday.toFixed(1)} L`}
+                value={formatWaterVolume(totalToday)}
+              />
+              <Metric
+                icon={Activity}
+                label="Last 7 days"
+                value={formatWaterVolume(totalSevenDays)}
+              />
+              <Metric
+                icon={Waves}
+                label="This month"
+                value={formatWaterVolume(totalThisMonth)}
+              />
+              <Metric
+                icon={Waves}
+                label="30-day forecast"
+                value={formatWaterVolume(monthlyEstimate)}
+              />
+              <Metric
+                icon={Droplets}
+                label="Annual forecast"
+                value={formatWaterVolume(annualEstimate)}
+              />
+              <Metric
+                icon={Activity}
+                label="Average flow"
+                value={`${averageFlow.toFixed(2)} L/min`}
+              />
+              <Metric
+                icon={Waves}
+                label="Peak flow"
+                value={`${peakFlow.toFixed(2)} L/min`}
               />
               <Metric
                 icon={Cpu}
@@ -784,6 +925,12 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 10,
     marginTop: 18,
+  },
+  summaryHeader: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 24,
   },
   primaryButton: {
     backgroundColor: H2Colors.primary,
