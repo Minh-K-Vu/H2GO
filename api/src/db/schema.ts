@@ -77,6 +77,22 @@ const databaseSchemaSql = `
     ALTER COLUMN created_at SET DEFAULT now(),
     ALTER COLUMN last_seen_at SET DEFAULT now();
 
+  CREATE TABLE IF NOT EXISTS home_profiles (
+    user_id TEXT PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+    home_name TEXT NOT NULL DEFAULT 'My Home',
+    address TEXT,
+    timezone TEXT NOT NULL DEFAULT 'Australia/Adelaide',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  ALTER TABLE home_profiles
+    ADD COLUMN IF NOT EXISTS home_name TEXT NOT NULL DEFAULT 'My Home',
+    ADD COLUMN IF NOT EXISTS address TEXT,
+    ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'Australia/Adelaide',
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
   CREATE TABLE IF NOT EXISTS devices (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     name TEXT NOT NULL DEFAULT 'H2GO Sensor',
@@ -105,6 +121,27 @@ const databaseSchemaSql = `
     ALTER COLUMN created_at SET DEFAULT now(),
     ALTER COLUMN updated_at SET DEFAULT now();
 
+  CREATE SEQUENCE IF NOT EXISTS simulated_device_sequence START WITH 1001;
+
+  CREATE TABLE IF NOT EXISTS simulated_devices (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    serial_number TEXT NOT NULL UNIQUE,
+    model TEXT NOT NULL DEFAULT 'H2 One',
+    simulation_seed INTEGER NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+
+  ALTER TABLE simulated_devices
+    ADD COLUMN IF NOT EXISTS serial_number TEXT,
+    ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT 'H2 One',
+    ADD COLUMN IF NOT EXISTS simulation_seed INTEGER,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+  ALTER TABLE devices
+    ADD COLUMN IF NOT EXISTS simulator_id TEXT REFERENCES simulated_devices(id) ON DELETE SET NULL;
+
   DO $$
   BEGIN
     IF NOT EXISTS (
@@ -119,6 +156,19 @@ const databaseSchemaSql = `
   END;
   $$;
 
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger WHERE tgname = 'set_home_profiles_updated_at'
+    ) THEN
+      CREATE TRIGGER set_home_profiles_updated_at
+      BEFORE UPDATE ON home_profiles
+      FOR EACH ROW
+      EXECUTE FUNCTION public.set_row_updated_at();
+    END IF;
+  END;
+  $$;
+
   CREATE TABLE IF NOT EXISTS readings (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
@@ -126,6 +176,7 @@ const databaseSchemaSql = `
     flow_lpm NUMERIC(12, 3) NOT NULL,
     pressure_bar NUMERIC(12, 3),
     temperature_c NUMERIC(12, 3),
+    simulation_bucket BIGINT,
     ts TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
@@ -135,6 +186,7 @@ const databaseSchemaSql = `
     ADD COLUMN IF NOT EXISTS device_name TEXT,
     ADD COLUMN IF NOT EXISTS pressure_bar NUMERIC(12, 3),
     ADD COLUMN IF NOT EXISTS temperature_c NUMERIC(12, 3),
+    ADD COLUMN IF NOT EXISTS simulation_bucket BIGINT,
     ADD COLUMN IF NOT EXISTS ts TIMESTAMPTZ NOT NULL DEFAULT now(),
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
@@ -232,8 +284,22 @@ const databaseSchemaSql = `
   CREATE INDEX IF NOT EXISTS devices_status_idx
     ON devices (status);
 
+  CREATE UNIQUE INDEX IF NOT EXISTS devices_simulator_id_key
+    ON devices (simulator_id)
+    WHERE simulator_id IS NOT NULL;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS simulated_devices_serial_number_key
+    ON simulated_devices (serial_number);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS simulated_devices_seed_key
+    ON simulated_devices (simulation_seed);
+
   CREATE INDEX IF NOT EXISTS readings_device_ts_idx
     ON readings (device_id, ts DESC);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS readings_simulation_bucket_key
+    ON readings (device_id, simulation_bucket)
+    WHERE simulation_bucket IS NOT NULL;
 
   CREATE INDEX IF NOT EXISTS alerts_device_ts_idx
     ON alerts (device_id, ts DESC);
@@ -283,12 +349,36 @@ const databaseSchemaSql = `
   END;
   $$;
 
-  INSERT INTO devices (id, name, location, status, is_on, last_seen)
-  VALUES ('dev-1', 'H2GO Sensor', 'Main Line', 'online', true, now())
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger WHERE tgname = 'set_simulated_devices_updated_at'
+    ) THEN
+      CREATE TRIGGER set_simulated_devices_updated_at
+      BEFORE UPDATE ON simulated_devices
+      FOR EACH ROW
+      EXECUTE FUNCTION public.set_row_updated_at();
+    END IF;
+  END;
+  $$;
+
+  INSERT INTO simulated_devices (id, serial_number, model, simulation_seed)
+  VALUES ('sim-demo-1', 'H2-SIM-1000', 'H2 One', 104729)
   ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO devices (id, name, location, status, is_on, last_seen, simulator_id)
+  VALUES ('dev-1', 'H2 Monitor', 'Main Line', 'online', true, now(), 'sim-demo-1')
+  ON CONFLICT (id) DO NOTHING;
+
+  UPDATE devices
+  SET simulator_id = 'sim-demo-1'
+  WHERE id = 'dev-1'
+    AND simulator_id IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM devices WHERE simulator_id = 'sim-demo-1'
+    );
 `;
 
 export async function ensureDatabaseSchema() {
   await pool.query(databaseSchemaSql);
 }
-

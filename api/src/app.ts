@@ -5,6 +5,8 @@ import authRouter from "./routes/auth";
 import healthRouter from "./routes/health";
 import telemetryRouter from "./routes/telemetry";
 import devicesRouter from "./routes/devices";
+import simulatorsRouter from "./routes/simulators";
+import settingsRouter from "./routes/settings";
 import { env } from "./config/env";
 import { attachAuthSession } from "./middleware/auth";
 import { errorHandler } from "./middleware/errorHandler";
@@ -32,6 +34,8 @@ app.use(authRouter);
 app.use(telemetryRouter);
 app.use(alertsRouter);
 app.use(devicesRouter);
+app.use(simulatorsRouter);
+app.use(settingsRouter);
 
 app.use(errorHandler);
 

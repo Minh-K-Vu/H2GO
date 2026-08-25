@@ -49,6 +49,20 @@ const updateUserSchema = z
     message: "At least one field must be provided.",
   });
 
+const updateOwnAccountSchema = z.object({
+  name: z.string().trim().min(2, "Name must be at least 2 characters.").max(80),
+});
+
+const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(8),
+    newPassword: z.string().min(8, "New password must be at least 8 characters."),
+  })
+  .refine((value) => value.currentPassword !== value.newPassword, {
+    message: "New password must be different from the current password.",
+    path: ["newPassword"],
+  });
+
 async function createSessionForUser(userId: string) {
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
@@ -146,6 +160,75 @@ authRouter.get("/auth/me", requireRegisteredUser, (req, res) => {
     user: req.auth?.user ?? null,
   });
 });
+
+authRouter.patch("/auth/me", requireRegisteredUser, async (req, res) => {
+  const parsed = updateOwnAccountSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Invalid account details.",
+      details: parsed.error.format(),
+    });
+  }
+
+  try {
+    const result = await pool.query<AuthUserRecord>(
+      `UPDATE app_users
+       SET name = $2
+       WHERE id = $1
+       RETURNING id, email, name, role, is_registered, is_active, created_at`,
+      [req.auth!.user!.id, parsed.data.name],
+    );
+
+    req.auth!.user = toAuthUser(result.rows[0]);
+    return res.status(200).json({ user: req.auth!.user });
+  } catch (error) {
+    console.error("Failed to update account", error);
+    return res.status(500).json({ error: "Failed to update account." });
+  }
+});
+
+authRouter.post(
+  "/auth/change-password",
+  requireRegisteredUser,
+  async (req, res) => {
+    const parsed = changePasswordSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid password change.",
+        details: parsed.error.format(),
+      });
+    }
+
+    try {
+      const userResult = await pool.query<{ password_hash: string }>(
+        `SELECT password_hash FROM app_users WHERE id = $1 LIMIT 1`,
+        [req.auth!.user!.id],
+      );
+      const passwordHash = userResult.rows[0]?.password_hash;
+
+      if (!passwordHash || !verifyPassword(parsed.data.currentPassword, passwordHash)) {
+        return res.status(400).json({ error: "Current password is incorrect." });
+      }
+
+      await pool.query(
+        `UPDATE app_users SET password_hash = $2 WHERE id = $1`,
+        [req.auth!.user!.id, hashPassword(parsed.data.newPassword)],
+      );
+      await pool.query(
+        `DELETE FROM auth_sessions
+         WHERE user_id = $1 AND id <> $2`,
+        [req.auth!.user!.id, req.auth!.sessionId],
+      );
+
+      return res.status(200).json({ ok: true });
+    } catch (error) {
+      console.error("Failed to change password", error);
+      return res.status(500).json({ error: "Failed to change password." });
+    }
+  },
+);
 
 authRouter.post("/auth/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
@@ -272,7 +355,11 @@ authRouter.post("/auth/logout", async (req, res) => {
   try {
     const token = readSessionToken(req.headers.cookie);
 
-    if (token) {
+    if (req.auth?.sessionId) {
+      await pool.query("DELETE FROM auth_sessions WHERE id = $1", [
+        req.auth.sessionId,
+      ]);
+    } else if (token) {
       await pool.query(
         `DELETE FROM auth_sessions
          WHERE token_hash = $1`,

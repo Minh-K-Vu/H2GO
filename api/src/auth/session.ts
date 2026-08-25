@@ -40,7 +40,7 @@ export function buildSessionCookie(
     `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    secureCookies ? "SameSite=None" : "SameSite=Lax",
     `Max-Age=${maxAgeSeconds}`,
   ];
 
@@ -56,7 +56,7 @@ export function clearSessionCookie(secureCookies: boolean) {
     `${AUTH_COOKIE_NAME}=`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    secureCookies ? "SameSite=None" : "SameSite=Lax",
     "Max-Age=0",
   ];
 

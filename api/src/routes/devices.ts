@@ -2,6 +2,11 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool } from "../db/pool";
 import { requireRegisteredUser, requireRole } from "../middleware/auth";
+import {
+  createSimulatedTelemetry,
+  getSimulationBucket,
+  simulatedReadingMatchesValveState,
+} from "../simulation/telemetry";
 
 const devicesRouter = Router();
 
@@ -23,6 +28,9 @@ type DeviceRow = {
   status: (typeof DEVICE_STATUSES)[number];
   is_on: boolean;
   last_seen: string | null;
+  simulator_id: string | null;
+  serial_number?: string | null;
+  simulation_seed?: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -147,6 +155,8 @@ function mapDeviceRow(row: DeviceRow) {
     status: row.status,
     is_on: row.is_on,
     last_seen: row.last_seen,
+    is_simulated: row.simulator_id !== null,
+    serial_number: row.serial_number ?? null,
     created_date: row.created_at,
     updated_date: row.updated_at,
   };
@@ -204,9 +214,13 @@ async function fetchDeviceById(deviceId: string) {
        d.status,
        d.is_on,
        d.last_seen,
+       d.simulator_id,
+       s.serial_number,
+       s.simulation_seed,
        d.created_at,
        d.updated_at
      FROM devices d
+     LEFT JOIN simulated_devices s ON s.id = d.simulator_id
      WHERE d.id = $1
      LIMIT 1`,
     [deviceId],
@@ -223,6 +237,78 @@ async function createValveClosedAlert(
     `INSERT INTO alerts (device_id, device_name, type, severity, message)
      VALUES ($1, $2, 'VALVE_CLOSED', 'medium', $3)`,
     [device.id, device.name, message],
+  );
+}
+
+async function ensureFreshSimulatedReading(deviceId: string) {
+  const device = await fetchDeviceById(deviceId);
+
+  if (!device?.simulation_seed) {
+    return;
+  }
+
+  const latestResult = await pool.query<{ flow_lpm: string | number; ts: string }>(
+    `SELECT flow_lpm, ts
+     FROM readings
+     WHERE device_id = $1
+     ORDER BY ts DESC
+     LIMIT 1`,
+    [deviceId],
+  );
+  const latestReading = latestResult.rows[0];
+  const latestTimestamp = latestReading?.ts;
+
+  if (
+    latestTimestamp &&
+    Date.now() - new Date(latestTimestamp).getTime() < 15_000 &&
+    simulatedReadingMatchesValveState(
+      Number(latestReading.flow_lpm),
+      device.is_on,
+    )
+  ) {
+    return;
+  }
+
+  const reading = createSimulatedTelemetry(
+    device.simulation_seed,
+    new Date(),
+    device.is_on,
+  );
+
+  await pool.query(
+    `INSERT INTO readings (
+       device_id,
+       device_name,
+       flow_lpm,
+       pressure_bar,
+       temperature_c,
+       simulation_bucket,
+       ts
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (device_id, simulation_bucket)
+       WHERE simulation_bucket IS NOT NULL
+     DO UPDATE SET
+       flow_lpm = EXCLUDED.flow_lpm,
+       pressure_bar = EXCLUDED.pressure_bar,
+       temperature_c = EXCLUDED.temperature_c,
+       ts = EXCLUDED.ts`,
+    [
+      device.id,
+      device.name,
+      reading.flowLpm,
+      reading.pressureBar,
+      reading.temperatureC,
+      getSimulationBucket(reading.timestamp),
+      reading.timestamp,
+    ],
+  );
+
+  await pool.query(
+    `UPDATE devices
+     SET last_seen = now()
+     WHERE id = $1`,
+    [device.id],
   );
 }
 
@@ -259,9 +345,13 @@ devicesRouter.get("/devices", async (req, res) => {
          d.status,
          d.is_on,
          d.last_seen,
+         d.simulator_id,
+         s.serial_number,
+         s.simulation_seed,
          d.created_at,
          d.updated_at
        FROM devices d
+       LEFT JOIN simulated_devices s ON s.id = d.simulator_id
        ${whereSql}
        ORDER BY ${buildDeviceOrderBy(sort)}
        LIMIT $${params.length + 1}`,
@@ -312,6 +402,7 @@ devicesRouter.post(
            status,
            is_on,
            last_seen,
+           simulator_id,
            created_at,
            updated_at`,
         [
@@ -402,6 +493,7 @@ devicesRouter.patch(
            status,
            is_on,
            last_seen,
+           simulator_id,
            created_at,
            updated_at`,
         [
@@ -508,6 +600,7 @@ devicesRouter.post(
            status,
            is_on,
            last_seen,
+           simulator_id,
            created_at,
            updated_at`,
         [deviceId, nextIsOn],
@@ -547,6 +640,7 @@ devicesRouter.get("/devices/:id/readings", async (req, res) => {
   const limit = parsedQuery.data.limit ?? 30;
 
   try {
+    await ensureFreshSimulatedReading(getRouteParamId(req.params.id));
     const result = await pool.query<ReadingRow>(
       `SELECT
          r.id,
@@ -575,6 +669,7 @@ devicesRouter.get("/devices/:id/readings", async (req, res) => {
 
 devicesRouter.get("/devices/:id/latest", async (req, res) => {
   try {
+    await ensureFreshSimulatedReading(getRouteParamId(req.params.id));
     const result = await pool.query<ReadingRow>(
       `SELECT
          r.id,
@@ -607,6 +702,7 @@ devicesRouter.get("/devices/:id/latest", async (req, res) => {
 
 devicesRouter.get("/devices/:id/today-total", async (req, res) => {
   try {
+    await ensureFreshSimulatedReading(getRouteParamId(req.params.id));
     const result = await pool.query<{ litres_today: string | number }>(
       `SELECT COALESCE(SUM(flow_lpm), 0) AS litres_today
        FROM readings
@@ -624,6 +720,49 @@ devicesRouter.get("/devices/:id/today-total", async (req, res) => {
 
     return res.status(500).json({
       error: "Failed to fetch today total.",
+    });
+  }
+});
+
+devicesRouter.get("/devices/:id/usage-summary", async (req, res) => {
+  try {
+    const deviceId = getRouteParamId(req.params.id);
+    await ensureFreshSimulatedReading(deviceId);
+    const result = await pool.query<{
+      litres_today: string | number;
+      litres_seven_days: string | number;
+      litres_this_month: string | number;
+    }>(
+      `SELECT
+         COALESCE(
+           SUM(flow_lpm) FILTER (WHERE ts >= date_trunc('day', now())),
+           0
+         ) AS litres_today,
+         COALESCE(
+           SUM(flow_lpm) FILTER (WHERE ts >= now() - interval '7 days'),
+           0
+         ) AS litres_seven_days,
+         COALESCE(
+           SUM(flow_lpm) FILTER (WHERE ts >= date_trunc('month', now())),
+           0
+         ) AS litres_this_month
+       FROM readings
+       WHERE device_id = $1`,
+      [deviceId],
+    );
+    const summary = result.rows[0];
+
+    return res.status(200).json({
+      deviceId,
+      litresToday: Number(summary?.litres_today ?? 0),
+      litresSevenDays: Number(summary?.litres_seven_days ?? 0),
+      litresThisMonth: Number(summary?.litres_this_month ?? 0),
+    });
+  } catch (error) {
+    console.error("Failed to fetch usage summary", error);
+
+    return res.status(500).json({
+      error: "Failed to fetch usage summary.",
     });
   }
 });
